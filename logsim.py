@@ -191,6 +191,7 @@ class Client:
                 if self._verbosity > 2:
                     print('@ {}: {} ended, count = {}'.format(self.env.now, d, self.RAM[d]['cnt']))
                 
+    # Create plots
     def do_plot(self):
         import matplotlib.pyplot as plt
         import numpy as np
