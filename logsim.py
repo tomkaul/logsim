@@ -46,7 +46,7 @@ import numpy as np
 # %matplotlib inline
 
 class Client:
-    def __init__(self, id, env, cfg):
+    def __init__(self, id, env, data, cfg):
         # Initialize variables
         self.id = id
         self.env = env
@@ -66,8 +66,11 @@ class Client:
         self._times_pr_day = cfg['times_pr_day']
         self._nvram_str = cfg['nvram_str']
         self._verbosity = cfg['verbosity']
+        self.data = data
+        # Declare
         self.RAM = {}
         self.NVRAM = {}
+        self.HI_running = False
         # Init memory
         self.init_memory()
         # Start the sessions and the detectors and estimators
@@ -81,30 +84,31 @@ class Client:
         
     # Init Memory
     def init_memory(self):
-        # Create RAM version of usage: (State, cnt)
-        self.RAM['usage'] = {'val': False, 'cnt': 0}
+        # Create RAM version of client-ID and usage
+        self.RAM['id'] = self.id
+        self.RAM['usage'] = 0
         # Create NVRAM version of usage : cnt
         self.NVRAM['usage']  = [0] * self.nvram_array
         self.NVRAM['charge'] = [0] * self.nvram_array
         for d in self.estimators:
             # Create RAM version of all detectors: (State, cnt)
-            self.RAM[d] = {'cnt': 0}
+            self.RAM[d] = 0
             # Create NVRAM version of all detectors: cnt
             self.NVRAM[d] = [0] * self.nvram_array
         for d in self.detectors:
             # Create RAM version of all detectors: (State, cnt)
-            self.RAM[d] = {'cnt': 0}
+            self.RAM[d] = 0
             # Create NVRAM version of all detectors: cnt
             self.NVRAM[d] = [0] * self.nvram_array
             
     # Clear RAM
     def clear_ram(self):
-        self.RAM['usage']['val'] = True
-        self.RAM['usage']['cnt'] = 0
+        self.HI_running = True
+        self.RAM['usage'] = 0
         for k in self.estimators:
-            self.RAM[k]['cnt'] = 0
+            self.RAM[k] = 0
         for k in self.detectors:
-            self.RAM[k]['cnt'] = 0
+            self.RAM[k] = 0
 
     # Sessions
     def run_sessions(self):
@@ -134,19 +138,19 @@ class Client:
             if self._verbosity > 0:
                 print('Session ended   @', sec2hms(self.env.now), ', Client: ', self.id)
             self.update_usage()
-            self.RAM['usage']['val'] = False
+            self.HI_running = False
             # Write NVRAM
             if self._nvram_str:
-                self.NVRAM['usage'][self._power_cycle] = sec2hms(int(self.RAM['usage']['cnt']))
+                self.NVRAM['usage'][self._power_cycle] = sec2hms(int(self.RAM['usage']))
             else:
-                self.NVRAM['usage'][self._power_cycle] = self.RAM['usage']['cnt']
+                self.NVRAM['usage'][self._power_cycle] = self.RAM['usage']
             for d in self.detectors:
-                self.NVRAM[d][self._power_cycle] = self.RAM[d]['cnt']
+                self.NVRAM[d][self._power_cycle] = self.RAM[d]
             for d in self.estimators:
                 if self._nvram_str:
-                    self.NVRAM[d][self._power_cycle] = "{:.2f}%".format(100.0 * self.RAM[d]['cnt'] / self.RAM['usage']['cnt'])
+                    self.NVRAM[d][self._power_cycle] = "{:.2f}%".format(100.0 * self.RAM[d] / self.RAM['usage'])
                 else:
-                    self.NVRAM[d][self._power_cycle] = self.RAM[d]['cnt']
+                    self.NVRAM[d][self._power_cycle] = self.RAM[d]
 
             if self._verbosity > 1:
                 print('RAM:   ' + str(self.RAM))
@@ -162,7 +166,7 @@ class Client:
             
     # Update usage counter
     def update_usage(self):
-        self.RAM['usage']['cnt'] += self.env.now - self._last_updated_at
+        self.RAM['usage'] += self.env.now - self._last_updated_at
         self._last_updated_at = self.env.now
         
 
@@ -170,10 +174,10 @@ class Client:
     def run_detectors(self, d):
         while True:
             yield self.env.timeout(hms2sec(self.detectors[d]))
-            if self.RAM['usage']['val']:
-                self.RAM[d]['cnt'] = self.RAM[d]['cnt'] + 1
+            if self.HI_running:
+                self.RAM[d] = self.RAM[d] + 1
                 if self._verbosity > 3:
-                    print('@ {}: {} fired, count = {}'.format(self.env.now, d, self.RAM[d]['cnt']))
+                    print('@ {}: {} fired, count = {}'.format(self.env.now, d, self.RAM[d]))
 
     # Start HI estimators
     def run_estimators(self, d):
@@ -181,26 +185,27 @@ class Client:
             # Start estimator
             yield self.env.timeout(hms2sec(self.estimators[d]['interval']))
             self.estimators[d]['last_updated'] = self.env.now
-            if self.RAM['usage']['val']:
+            if self.HI_running:
                 if self._verbosity > 3:
-                    print('@ {}: {} started'.format(self.env.now, d, self.RAM[d]['cnt']))
+                    print('@ {}: {} started'.format(self.env.now, d, self.RAM[d]))
             # End estimator
             length = hms2sec(self.estimators[d]['length']) 
             if d is 'ovd':
                 length += self._power_cycle
             yield self.env.timeout(length)
-            if self.RAM['usage']['val']:
-                self.RAM[d]['cnt'] += self.env.now - self.estimators[d]['last_updated']
+            if self.HI_running:
+                self.RAM[d] += self.env.now - self.estimators[d]['last_updated']
                 if self._verbosity > 3:
-                    print('@ {}: {} ended, count = {}'.format(self.env.now, d, self.RAM[d]['cnt']))
+                    print('@ {}: {} ended, count = {}'.format(self.env.now, d, self.RAM[d]))
                 
     # Start App
     def run_app(self):
         app_tick = hms2sec(self.app['interval'])
         while True:
             yield self.env.timeout(app_tick)
-            if self.RAM['usage']['val']:
+            if self.HI_running:
                 self.update_usage()
+                self.data.put(self.RAM)
                 if self._verbosity > 2:
                     print('@ {}: App: {}'.format(self.env.now, self.RAM))
 
@@ -257,19 +262,11 @@ class DataPool:
     
 
 #%% Setup environment and run simulation
-days = 4
-verbosity = 3
+days = 16
+verbosity = 1
 plot = True
 # plot = False
 dataPool = DataPool()
-d1 = {'A': 1, 'B': 2, 'C': 3}
-d2 = {'A': 2, 'B': 4, 'C': 5}
-d3 = {'A': 3, 'B': 6, 'C': 7}
-d4 = {'A': 4, 'B': 8, 'C': 9}
-dataPool.put(d1)
-dataPool.put(d2)
-dataPool.put(d3)
-dataPool.put(d4)
 
 # Configure client
 client_cfg = {
@@ -279,18 +276,18 @@ client_cfg = {
     'min_period'   : '7h', 
     'max_period'   : '9h', 
     'nvram_str'    : not plot,
-    'estimators'   : {'ovd'  : {'interval': '10m', 'length': '30s', 'last_updated': 0},
-                      'vad'  : {'interval':  '5m', 'length': '40s', 'last_updated': 0}},
-    'detectors'    : {'vcUp' :  '30m',
+    'estimators'   : {'ovd'   : {'interval': '10m', 'length': '30s', 'last_updated': 0},
+                      'vad'   : {'interval':  '5m', 'length': '40s', 'last_updated': 0},
+                      'noise' : {'interval':  '5m', 'length':  '2m', 'last_updated': 0}},
+    'detectors'    : {'vcUp'  :  '30m',
                       'vcDwn' : '10m'},
-    'app'          : {'on': True, 'interval': '120m'},
+    'app'          : {'on': True, 'interval': '60m'},
     'times_pr_day' : 1 }
 
 # Define environment and client(s)
 env = simpy.Environment()
-usr = Client(0, env, client_cfg)
-# usr = Client(0, env, nvram_array = days, verbosity = verbosity, nvram_str = not plot, app_interval = app_interval, app_on = app_on )
-# usr = Client(1, env, nvram_array = days, verbosity = verbosity, nvram_str = not plot, min_period = '3h', max_period = '4h', times_pr_day = 2)
+Client(0, env, dataPool, client_cfg)
+# for i in range(4): Client(i, env, dataPool, client_cfg)
 
 # Run simulation
-env.run(until=hms2sec('{}d'.format(days+3)))
+env.run(until=hms2sec('{}d'.format(days+1)))
