@@ -46,32 +46,51 @@ def hms2sec(hms):
 
 #%% Define the Client event generators
 class Client:
-    def __init__(self, id, env, 
-                 nvram_array = 16, 
-                 min_period = '7h', 
-                 max_period = '9h', 
-                 times_pr_day = 1,
-                 nvram_str = True,
-                 verbosity = 1):
+    def __init__(self, id, env, cfg):
+                 # nvram_array = 16, 
+                 # min_period = '7h', 
+                 # max_period = '9h', 
+                 # times_pr_day = 1,
+                 # app_on = True,
+                 # app_interval = '5m',
+                 # nvram_str = True,
+                 # verbosity = 1):
         # Set simulation variables
-        # Size of NVRAM arrays
-        self.nvram_array = nvram_array
-        # Estimators -     name        interval           length
-        self.estimators = {'ovd'  : {'interval': '10m', 'length': '30s', 'last_updated': 0},
-                           'vad'  : {'interval':  '5m', 'length': '40s', 'last_updated': 0}}
-        # Detectors -     name     interval
-        self.detectors = {'vcUp' :  '30m',
-                          'vcDwn' : '10m'}
+# client_cfg = 
+# {
+#     'verbosity'    : verbosity,
+#     'plot'         : True,
+#     'nvram_array'  : days,
+#     'min_period'   : '7h', 
+#     'max_period'   : '9h', 
+#     'nvram_str'    : True,
+#     'estimators'   : {'ovd'  : {'interval': '10m', 'length': '30s', 'last_updated': 0},
+#                       'vad'  : {'interval':  '5m', 'length': '40s', 'last_updated': 0}}
+#     'detectors'    : {'vcUp' :  '30m',
+#                       'vcDwn' : '10m'}
+#     'app'          : {'on': False, 'interval': '1m'}
+#     'times_pr_day' : 1,
+# }
+
         # Initialize variables
         self.id = id
         self.env = env
         self._last_updated_at = 0
         self._power_cycle = 0
-        self._min_period = hms2sec(min_period)
-        self._max_period = hms2sec(max_period)
-        self._times_pr_day = times_pr_day
-        self._nvram_str = nvram_str
-        self._verbosity = verbosity
+        self.plot = cfg['plot']
+        # Size of NVRAM arrays
+        self.nvram_array = cfg['nvram_array']
+        # Estimators -     name        interval           length
+        self.estimators = cfg['estimators']
+        # Detectors -     name     interval
+        self.detectors = cfg['detectors']
+        # App 
+        self.app = cfg['app']
+        self._min_period = hms2sec(cfg['min_period'])
+        self._max_period = hms2sec(cfg['max_period'])
+        self._times_pr_day = cfg['times_pr_day']
+        self._nvram_str = cfg['nvram_str']
+        self._verbosity = cfg['verbosity']
         self.RAM = {}
         self.NVRAM = {}
         # Init memory
@@ -82,6 +101,8 @@ class Client:
             self.env.process(self.run_detectors(d))
         for d in self.estimators:
             self.env.process(self.run_estimators(d))
+        if self.app['on']:
+            self.env.process(self.run_app())
         
     # Init Memory
     def init_memory(self):
@@ -137,8 +158,7 @@ class Client:
             # End Session (HI into Charger)
             if self._verbosity > 0:
                 print('Session ended   @', sec2hms(self.env.now), ', Client: ', self.id)
-            self.RAM['usage']['cnt'] += self.env.now - self._last_updated_at
-            self._last_updated_at = self.env.now
+            self.update_usage()
             self.RAM['usage']['val'] = False
             # Write NVRAM
             if self._nvram_str:
@@ -159,17 +179,25 @@ class Client:
             # self._power_cycle = (self._power_cycle + 1) % self.nvram_array
             self._power_cycle += 1
             # Test if completed
-            if self._verbosity > 0:
-                if self._power_cycle == self.nvram_array:
+            if self._power_cycle == self.nvram_array:
+                if self._verbosity > 0:
                     print('Simulation Completed!')
+                if self.plot:
+                    self.do_plot()
             
+    # Update usage counter
+    def update_usage(self):
+        self.RAM['usage']['cnt'] += self.env.now - self._last_updated_at
+        self._last_updated_at = self.env.now
+        
+
     # Start HI detectors
     def run_detectors(self, d):
         while True:
             yield self.env.timeout(hms2sec(self.detectors[d]))
             if self.RAM['usage']['val']:
                 self.RAM[d]['cnt'] = self.RAM[d]['cnt'] + 1
-                if self._verbosity > 2:
+                if self._verbosity > 3:
                     print('@ {}: {} fired, count = {}'.format(self.env.now, d, self.RAM[d]['cnt']))
 
     # Start HI estimators
@@ -179,7 +207,7 @@ class Client:
             yield self.env.timeout(hms2sec(self.estimators[d]['interval']))
             self.estimators[d]['last_updated'] = self.env.now
             if self.RAM['usage']['val']:
-                if self._verbosity > 2:
+                if self._verbosity > 3:
                     print('@ {}: {} started'.format(self.env.now, d, self.RAM[d]['cnt']))
             # End estimator
             length = hms2sec(self.estimators[d]['length']) 
@@ -188,14 +216,24 @@ class Client:
             yield self.env.timeout(length)
             if self.RAM['usage']['val']:
                 self.RAM[d]['cnt'] += self.env.now - self.estimators[d]['last_updated']
-                if self._verbosity > 2:
+                if self._verbosity > 3:
                     print('@ {}: {} ended, count = {}'.format(self.env.now, d, self.RAM[d]['cnt']))
                 
+    # Start App
+    def run_app(self):
+        app_tick = hms2sec(self.app['interval'])
+        while True:
+            yield self.env.timeout(app_tick)
+            if self.RAM['usage']['val']:
+                self.update_usage()
+                if self._verbosity > 2:
+                    print('@ {}: App: {}'.format(self.env.now, self.RAM))
+
     # Create plots
     def do_plot(self):
         import matplotlib.pyplot as plt
         import numpy as np
-        %matplotlib inline
+        # %matplotlib inline
         
         # Prep x axis
         x1 = [x-0.1 for x in np.arange(days)]
@@ -206,13 +244,18 @@ class Client:
         y1 = [i / j * 100 for i, j in zip(self.NVRAM['vad'], self.NVRAM['usage'])]
         y2 = [i / j * 100 for i, j in zip(self.NVRAM['ovd'], self.NVRAM['usage'])]
         # x = range(days)
-        plt.bar(x1, y1, color = 'r', width = 0.2)
-        plt.bar(x2, y2, color = 'm', width = 0.2)
+        try:
+            plt.bar(x1, y1, color = 'r', width = 0.2)
+            plt.bar(x2, y2, color = 'm', width = 0.2)
+        except:
+            print("Something is wrong with input data!")
+            print(x1)
+            print(y1)
         # plt.bar(x, y, 0.3) 
         plt.ylabel('Percentage (%)')
         plt.xlabel('Sessions');    
         plt.legend(['VAD', 'OVD'])
-        plt.title('Voice Activity')
+        plt.title('Voice Activity for Client ' + str(self.id))
     
         # Plot Usage
         plt.figure()
@@ -224,20 +267,37 @@ class Client:
         plt.ylabel('Hours')
         plt.xlabel('Sessions');    
         plt.legend(['Charging', 'Usage'])
-        plt.title('Usage Overview')
+        plt.title('Usage Overview for Client ' + str(self.id))
 
         
         
 #%% Setup environment and run simulation
 days = 16
-verbosity = 1
+verbosity = 3
 plot = True
 # plot = False
+
+# Configure client
+client_cfg = {
+    'verbosity'    : verbosity,
+    'plot'         : plot,
+    'nvram_array'  : days,
+    'min_period'   : '7h', 
+    'max_period'   : '9h', 
+    'nvram_str'    : not plot,
+    'estimators'   : {'ovd'  : {'interval': '10m', 'length': '30s', 'last_updated': 0},
+                      'vad'  : {'interval':  '5m', 'length': '40s', 'last_updated': 0}},
+    'detectors'    : {'vcUp' :  '30m',
+                      'vcDwn' : '10m'},
+    'app'          : {'on': True, 'interval': '20m'},
+    'times_pr_day' : 1,
+}
+
+# Define environment and client(s)
 env = simpy.Environment()
-usr = Client(0, env, nvram_array = days, verbosity = verbosity, nvram_str = not plot)
+usr = Client(0, env, client_cfg)
+# usr = Client(0, env, nvram_array = days, verbosity = verbosity, nvram_str = not plot, app_interval = app_interval, app_on = app_on )
 # usr = Client(1, env, nvram_array = days, verbosity = verbosity, nvram_str = not plot, min_period = '3h', max_period = '4h', times_pr_day = 2)
 
+# Run simulation
 env.run(until=hms2sec('{}d'.format(days+3)))
-
-if plot:
-    usr.do_plot()
