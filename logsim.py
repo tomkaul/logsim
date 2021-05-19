@@ -5,11 +5,6 @@ Created on Thu May 13 09:01:13 2021
 @author: thka
 """
 
-#%% Init
-import simpy
-import random
-
-
 #%% Define the time functions
 import math
 # import time
@@ -43,35 +38,15 @@ def hms2sec(hms):
             sec = sec + int(s)
     return sec
             
-
 #%% Define the Client event generators
+import simpy
+import random
+import matplotlib.pyplot as plt
+import numpy as np
+# %matplotlib inline
+
 class Client:
     def __init__(self, id, env, cfg):
-                 # nvram_array = 16, 
-                 # min_period = '7h', 
-                 # max_period = '9h', 
-                 # times_pr_day = 1,
-                 # app_on = True,
-                 # app_interval = '5m',
-                 # nvram_str = True,
-                 # verbosity = 1):
-        # Set simulation variables
-# client_cfg = 
-# {
-#     'verbosity'    : verbosity,
-#     'plot'         : True,
-#     'nvram_array'  : days,
-#     'min_period'   : '7h', 
-#     'max_period'   : '9h', 
-#     'nvram_str'    : True,
-#     'estimators'   : {'ovd'  : {'interval': '10m', 'length': '30s', 'last_updated': 0},
-#                       'vad'  : {'interval':  '5m', 'length': '40s', 'last_updated': 0}}
-#     'detectors'    : {'vcUp' :  '30m',
-#                       'vcDwn' : '10m'}
-#     'app'          : {'on': False, 'interval': '1m'}
-#     'times_pr_day' : 1,
-# }
-
         # Initialize variables
         self.id = id
         self.env = env
@@ -231,9 +206,6 @@ class Client:
 
     # Create plots
     def do_plot(self):
-        import matplotlib.pyplot as plt
-        import numpy as np
-        # %matplotlib inline
         
         # Prep x axis
         x1 = [x-0.1 for x in np.arange(days)]
@@ -269,13 +241,35 @@ class Client:
         plt.legend(['Charging', 'Usage'])
         plt.title('Usage Overview for Client ' + str(self.id))
 
-        
-        
+#%% Define Data Pool
+import pandas as pd
+
+class DataPool:
+    def __init__(self):
+        self.empty = True
+        self.df = False
+    def put(self, data):
+        if self.empty:
+            self.df = pd.DataFrame([data])
+            self.empty = False
+        else:
+            self.df = self.df.append(data, ignore_index=True)
+    
+
 #%% Setup environment and run simulation
-days = 16
+days = 4
 verbosity = 3
 plot = True
 # plot = False
+dataPool = DataPool()
+d1 = {'A': 1, 'B': 2, 'C': 3}
+d2 = {'A': 2, 'B': 4, 'C': 5}
+d3 = {'A': 3, 'B': 6, 'C': 7}
+d4 = {'A': 4, 'B': 8, 'C': 9}
+dataPool.put(d1)
+dataPool.put(d2)
+dataPool.put(d3)
+dataPool.put(d4)
 
 # Configure client
 client_cfg = {
@@ -289,9 +283,8 @@ client_cfg = {
                       'vad'  : {'interval':  '5m', 'length': '40s', 'last_updated': 0}},
     'detectors'    : {'vcUp' :  '30m',
                       'vcDwn' : '10m'},
-    'app'          : {'on': True, 'interval': '20m'},
-    'times_pr_day' : 1,
-}
+    'app'          : {'on': True, 'interval': '120m'},
+    'times_pr_day' : 1 }
 
 # Define environment and client(s)
 env = simpy.Environment()
