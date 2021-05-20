@@ -39,6 +39,7 @@ def hms2sec(hms):
     return sec
             
 #%% Define the Client event generators
+import pprint
 import simpy
 import random
 import matplotlib.pyplot as plt
@@ -67,6 +68,7 @@ class Client:
         self._nvram_str = cfg['nvram_str']
         self._verbosity = cfg['verbosity']
         self.data = data
+        self.pp = pprint.PrettyPrinter(indent=2, width=160)
         # Declare
         self.RAM = {}
         self.NVRAM = {}
@@ -86,10 +88,11 @@ class Client:
     def init_memory(self):
         # Create RAM version of client-ID and usage
         self.RAM['id'] = self.id
+        self.RAM['charge'] = 0
         self.RAM['usage'] = 0
         # Create NVRAM version of usage : cnt
-        self.NVRAM['usage']  = [0] * self.nvram_array
         self.NVRAM['charge'] = [0] * self.nvram_array
+        self.NVRAM['usage']  = [0] * self.nvram_array
         for d in self.estimators:
             # Create RAM version of all detectors: (State, cnt)
             self.RAM[d] = 0
@@ -113,13 +116,17 @@ class Client:
     # Sessions
     def run_sessions(self):
         # Start in the morning...
-        # morn = hms2sec('7h:58m')
-        # yield self.env.timeout(morn)
+        first_day = True
         while self._power_cycle < self.nvram_array:
             # Start by Charging
             cycle = int(24 / self._times_pr_day)
             tick = random.randint(self._min_period, self._max_period)
             chg = hms2sec('{}h'.format(cycle)) - tick + random.randint(0, 600) - 300
+            if first_day:
+                chg -= hms2sec('8h')
+                first_day = False
+            # Check for negative time...
+            chg = max(chg, 300)
             self._last_updated_at = self.env.now
             yield self.env.timeout(chg)
             
@@ -131,6 +138,7 @@ class Client:
             else:
                 self.NVRAM['charge'][self._power_cycle] = self.env.now - self._last_updated_at
             self.clear_ram()
+            self.RAM['charge'] = self.NVRAM['charge'][self._power_cycle]
             self._last_updated_at = self.env.now
             yield self.env.timeout(tick)
 
@@ -153,8 +161,10 @@ class Client:
                     self.NVRAM[d][self._power_cycle] = self.RAM[d]
 
             if self._verbosity > 1:
-                print('RAM:   ' + str(self.RAM))
-                print('NVRAM: ' + str(self.NVRAM))
+                print('RAM:')
+                self.pp.pprint(self.RAM)
+                print('NVRAM:')
+                self.pp.pprint(self.NVRAM)
             # self._power_cycle = (self._power_cycle + 1) % self.nvram_array
             self._power_cycle += 1
             # Test if completed
@@ -169,7 +179,10 @@ class Client:
         self.RAM['usage'] += self.env.now - self._last_updated_at
         self._last_updated_at = self.env.now
         
-
+    # Pretty print RAM, NVRAM etc
+    def pprint(self, dct):
+        self.pp.pprint(dct)
+    
     # Start HI detectors
     def run_detectors(self, d):
         while True:
@@ -263,7 +276,8 @@ class DataPool:
 
 #%% Setup environment and run simulation
 days = 16
-verbosity = 1
+verbosity = 3
+
 plot = True
 # plot = False
 dataPool = DataPool()
@@ -275,13 +289,17 @@ client_cfg = {
     'nvram_array'  : days,
     'min_period'   : '7h', 
     'max_period'   : '9h', 
+    # 'min_period'   : '3h', 
+    # 'max_period'   : '4h', 
     'nvram_str'    : not plot,
     'estimators'   : {'ovd'   : {'interval': '10m', 'length': '30s', 'last_updated': 0},
                       'vad'   : {'interval':  '5m', 'length': '40s', 'last_updated': 0},
-                      'noise' : {'interval':  '5m', 'length':  '2m', 'last_updated': 0}},
-    'detectors'    : {'vcUp'  :  '30m',
-                      'vcDwn' : '10m'},
-    'app'          : {'on': True, 'interval': '60m'},
+                      'noise' : {'interval':  '5m', 'length':  '2m', 'last_updated': 0},
+                     },
+    'detectors'    : {'vcUp'  : '30m',
+                      'vcDwn' : '10m',
+                     },
+    'app'          : {'on': True, 'interval': '120m'},
     'times_pr_day' : 1 }
 
 # Define environment and client(s)
