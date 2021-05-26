@@ -37,7 +37,7 @@ def hms2sec(hms):
         else:
             sec = sec + int(s)
     return sec
-            
+
 #%% Define the Client event generators
 import pprint
 import simpy
@@ -46,14 +46,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 # %matplotlib inline
 
+
 class Client:
+    """
+    Class for holding a clients HI with detctors and estimators and an App 
+    that can sample the logging data from the HI
+    Init Parameters
+    ---------------
+    id : numeric
+         An identification number unique to this client
+    env : Reference to a simpy environment object
+    data : Reference to a DataPool object
+    cfg : Reference to a Configuratin dict
+    
+    """
     def __init__(self, id, env, data, cfg):
         # Initialize variables
         self.id = id
         self.env = env
-        self._last_updated_at = 0
-        self._power_cycle = 0
-        self.plot = cfg['plot']
+        self.last_updated_at = 0
+        self.power_cycle = 0
         # Size of NVRAM arrays
         self.nvram_array = cfg['nvram_array']
         # Estimators -     name        interval           length
@@ -62,11 +74,11 @@ class Client:
         self.detectors = cfg['detectors']
         # App 
         self.app = cfg['app']
-        self._min_period = hms2sec(cfg['min_period'])
-        self._max_period = hms2sec(cfg['max_period'])
-        self._times_pr_day = cfg['times_pr_day']
-        self._nvram_str = cfg['nvram_str']
-        self._verbosity = cfg['verbosity']
+        self.min_period = hms2sec(cfg['min_period'])
+        self.max_period = hms2sec(cfg['max_period'])
+        self.times_pr_day = cfg['times_pr_day']
+        self.nvram_str = cfg['nvram_str']
+        self.verbosity = cfg['verbosity']
         self.data = data
         self.pp = pprint.PrettyPrinter(indent=2, width=160)
         # Declare
@@ -117,67 +129,67 @@ class Client:
     def run_sessions(self):
         # Start in the morning...
         first_day = True
-        while self._power_cycle < self.nvram_array:
+        while self.power_cycle < self.nvram_array:
             # Start by Charging
-            cycle = int(24 / self._times_pr_day)
-            tick = random.randint(self._min_period, self._max_period)
+            cycle = int(24 / self.times_pr_day)
+            tick = random.randint(self.min_period, self.max_period)
             chg = hms2sec('{}h'.format(cycle)) - tick + random.randint(0, 600) - 300
             if first_day:
                 chg -= hms2sec('8h')
                 first_day = False
             # Check for negative time...
             chg = max(chg, 300)
-            self._last_updated_at = self.env.now
+            self.last_updated_at = self.env.now
             yield self.env.timeout(chg)
             
             # Start session (HI removed from Charger)
-            if self._verbosity > 0:
+            if self.verbosity > 0:
                 print('Session started @', sec2hms(self.env.now), ', Client: ', self.id)
-            if self._nvram_str:
-                self.NVRAM['charge'][self._power_cycle] = sec2hms(self.env.now - self._last_updated_at)
+            if self.nvram_str:
+                self.NVRAM['charge'][self.power_cycle] = sec2hms(self.env.now - self.last_updated_at)
             else:
-                self.NVRAM['charge'][self._power_cycle] = self.env.now - self._last_updated_at
+                self.NVRAM['charge'][self.power_cycle] = self.env.now - self.last_updated_at
             self.clear_ram()
-            self.RAM['charge'] = self.NVRAM['charge'][self._power_cycle]
-            self._last_updated_at = self.env.now
+            self.RAM['charge'] = self.NVRAM['charge'][self.power_cycle]
+            self.last_updated_at = self.env.now
             yield self.env.timeout(tick)
 
             # End Session (HI into Charger)
-            if self._verbosity > 0:
+            if self.verbosity > 0:
                 print('Session ended   @', sec2hms(self.env.now), ', Client: ', self.id)
             self.update_usage()
             self.HI_running = False
             # Write NVRAM
-            if self._nvram_str:
-                self.NVRAM['usage'][self._power_cycle] = sec2hms(int(self.RAM['usage']))
+            if self.nvram_str:
+                self.NVRAM['usage'][self.power_cycle] = sec2hms(int(self.RAM['usage']))
             else:
-                self.NVRAM['usage'][self._power_cycle] = self.RAM['usage']
+                self.NVRAM['usage'][self.power_cycle] = self.RAM['usage']
             for d in self.detectors:
-                self.NVRAM[d][self._power_cycle] = self.RAM[d]
+                self.NVRAM[d][self.power_cycle] = self.RAM[d]
             for d in self.estimators:
-                if self._nvram_str:
-                    self.NVRAM[d][self._power_cycle] = "{:.2f}%".format(100.0 * self.RAM[d] / self.RAM['usage'])
+                if self.nvram_str:
+                    self.NVRAM[d][self.power_cycle] = "{:.2f}%".format(100.0 * self.RAM[d] / self.RAM['usage'])
                 else:
-                    self.NVRAM[d][self._power_cycle] = self.RAM[d]
+                    self.NVRAM[d][self.power_cycle] = self.RAM[d]
 
-            if self._verbosity > 1:
+            if self.verbosity > 1:
                 print('RAM:')
                 self.pp.pprint(self.RAM)
                 print('NVRAM:')
                 self.pp.pprint(self.NVRAM)
-            # self._power_cycle = (self._power_cycle + 1) % self.nvram_array
-            self._power_cycle += 1
+            # self.power_cycle = (self.power_cycle + 1) % self.nvram_array
+            self.power_cycle += 1
             # Test if completed
-            if self._power_cycle == self.nvram_array:
-                if self._verbosity > 0:
+            if self.power_cycle == self.nvram_array:
+                if self.verbosity > 0:
                     print('Simulation Completed!')
-                if self.plot:
-                    self.do_plot()
+                # if self.plot:
+                #     self.do_plot()
             
     # Update usage counter
     def update_usage(self):
-        self.RAM['usage'] += self.env.now - self._last_updated_at
-        self._last_updated_at = self.env.now
+        self.RAM['usage'] += self.env.now - self.last_updated_at
+        self.last_updated_at = self.env.now
         
     # Pretty print RAM, NVRAM etc
     def pprint(self, dct):
@@ -189,7 +201,7 @@ class Client:
             yield self.env.timeout(hms2sec(self.detectors[d]))
             if self.HI_running:
                 self.RAM[d] = self.RAM[d] + 1
-                if self._verbosity > 3:
+                if self.verbosity > 3:
                     print('@ {}: {} fired, count = {}'.format(self.env.now, d, self.RAM[d]))
 
     # Start HI estimators
@@ -199,65 +211,73 @@ class Client:
             yield self.env.timeout(hms2sec(self.estimators[d]['interval']))
             self.estimators[d]['last_updated'] = self.env.now
             if self.HI_running:
-                if self._verbosity > 3:
+                if self.verbosity > 3:
                     print('@ {}: {} started'.format(self.env.now, d, self.RAM[d]))
             # End estimator
             length = hms2sec(self.estimators[d]['length']) 
             if d is 'ovd':
-                length += self._power_cycle
+                length += self.power_cycle
             yield self.env.timeout(length)
             if self.HI_running:
                 self.RAM[d] += self.env.now - self.estimators[d]['last_updated']
-                if self._verbosity > 3:
+                if self.verbosity > 3:
                     print('@ {}: {} ended, count = {}'.format(self.env.now, d, self.RAM[d]))
                 
     # Start App
     def run_app(self):
         app_tick = hms2sec(self.app['interval'])
+        app_data = {}
+        last_data = {}
         while True:
             yield self.env.timeout(app_tick)
             if self.HI_running:
                 self.update_usage()
-                self.data.put(self.RAM)
-                if self._verbosity > 2:
-                    print('@ {}: App: {}'.format(self.env.now, self.RAM))
+                app_data = self.RAM.copy()
+                if (self.app['diff'] and (len(last_data) > 0)):
+                    for e in self.estimators:
+                        app_data[e] = '{:.1f}%'.format(100.0 * (app_data[e] - last_data[e]) / app_tick)
+                    for e in self.detectors:
+                        app_data[e] = app_data[e] - last_data[e]
+                        
+                self.data.put(app_data)
+                last_data = self.RAM.copy()
+                if self.verbosity > 2:
+                    print('@ {}: App: {}'.format(self.env.now, app_data))
 
     # Create plots
-    def do_plot(self):
-        
-        # Prep x axis
-        x1 = [x-0.1 for x in np.arange(days)]
-        x2 = [x+0.1 for x in np.arange(days)]
+    # def do_plot(self):        
+    #     # Prep x axis
+    #     x1 = np.arange(days)
     
-        # PLot OVD + VAD
-        plt.figure()
-        y1 = [i / j * 100 for i, j in zip(self.NVRAM['vad'], self.NVRAM['usage'])]
-        y2 = [i / j * 100 for i, j in zip(self.NVRAM['ovd'], self.NVRAM['usage'])]
-        # x = range(days)
-        try:
-            plt.bar(x1, y1, color = 'r', width = 0.2)
-            plt.bar(x2, y2, color = 'm', width = 0.2)
-        except:
-            print("Something is wrong with input data!")
-            print(x1)
-            print(y1)
-        # plt.bar(x, y, 0.3) 
-        plt.ylabel('Percentage (%)')
-        plt.xlabel('Sessions');    
-        plt.legend(['VAD', 'OVD'])
-        plt.title('Voice Activity for Client ' + str(self.id))
+    #     # PLot OVD + VAD
+    #     plt.figure()
+    #     y1 = [(i + j) / u * 100 for i, j, u in zip(self.NVRAM['vad'], self.NVRAM['ovd'], self.NVRAM['usage'])]
+    #     y2 = [i / j * 100 for i, j in zip(self.NVRAM['ovd'], self.NVRAM['usage'])]
+    #     # x = range(days)
+    #     try:
+    #         plt.bar(x1, y1, color = 'r', width = 0.4)
+    #         plt.bar(x1, y2, color = 'm', width = 0.4)
+    #     except:
+    #         print("Something is wrong with input data!")
+    #         print(x1)
+    #         print(y1)
+    #     # plt.bar(x, y, 0.3) 
+    #     plt.ylabel('Percentage (%)')
+    #     plt.xlabel('Sessions');    
+    #     plt.legend(['Speech', 'Own Voice'])
+    #     plt.title('Voice Activity for Client ' + str(self.id))
     
-        # Plot Usage
-        plt.figure()
-        y1 = [int(x) / 3600.0 for x in self.NVRAM['charge']]
-        y2 = [int(x) / 3600.0 for x in self.NVRAM['usage']]
-        plt.bar(x1, y1, color = 'b', width = 0.2, label='Charging')
-        plt.bar(x2, y2, color = 'g', width = 0.2)
-        # plt.bar(x, y, 0.3) 
-        plt.ylabel('Hours')
-        plt.xlabel('Sessions');    
-        plt.legend(['Charging', 'Usage'])
-        plt.title('Usage Overview for Client ' + str(self.id))
+    #     # Plot Usage
+    #     plt.figure()
+    #     y1 = [(int(c)+ int(u)) / 3600.0 for c, u in zip(self.NVRAM['charge'], self.NVRAM['usage'])]
+    #     y2 = [int(x) / 3600.0 for x in self.NVRAM['usage']]
+    #     plt.bar(x1, y1, color = 'b', width = 0.4, label='Charging')
+    #     plt.bar(x1, y2, color = 'g', width = 0.4)
+    #     # plt.bar(x, y, 0.3) 
+    #     plt.ylabel('Hours')
+    #     plt.xlabel('Sessions');    
+    #     plt.legend(['Charging', 'Usage'])
+    #     plt.title('Usage Overview for Client ' + str(self.id))
 
 #%% Define Data Pool
 import pandas as pd
@@ -276,7 +296,8 @@ class DataPool:
 
 #%% Setup environment and run simulation
 days = 16
-verbosity = 3
+verbosity = 1
+
 
 plot = True
 # plot = False
@@ -285,27 +306,66 @@ dataPool = DataPool()
 # Configure client
 client_cfg = {
     'verbosity'    : verbosity,
-    'plot'         : plot,
     'nvram_array'  : days,
-    'min_period'   : '7h', 
+    'min_period'   : '2h', 
     'max_period'   : '9h', 
-    # 'min_period'   : '3h', 
-    # 'max_period'   : '4h', 
     'nvram_str'    : not plot,
     'estimators'   : {'ovd'   : {'interval': '10m', 'length': '30s', 'last_updated': 0},
                       'vad'   : {'interval':  '5m', 'length': '40s', 'last_updated': 0},
-                      'noise' : {'interval':  '5m', 'length':  '2m', 'last_updated': 0},
+                      'noise' : {'interval':  '7m', 'length':  '1m', 'last_updated': 0},
+                      # 'music' : {'interval': '10m', 'length': '3m', 'last_updated': 0},
+                      # 'restaurant' : {'interval':  '15m', 'length':  '2m', 'last_updated': 0},
+                      # 'traffic' : {'interval':  '5m', 'length':  '4m', 'last_updated': 0},
                      },
-    'detectors'    : {'vcUp'  : '30m',
-                      'vcDwn' : '10m',
+    'detectors'    : {'vcUp'  : '31m',
+                      'vcDwn' : '30m',
                      },
-    'app'          : {'on': True, 'interval': '120m'},
+    'app'          : {'on': True, 'diff': True, 'interval': '120m'},
     'times_pr_day' : 1 }
 
 # Define environment and client(s)
 env = simpy.Environment()
-Client(0, env, dataPool, client_cfg)
+usr = Client(0, env, dataPool, client_cfg)
 # for i in range(4): Client(i, env, dataPool, client_cfg)
 
 # Run simulation
 env.run(until=hms2sec('{}d'.format(days+1)))
+
+#%% Test plot
+if plot:
+    # Prepare data
+    dd=pd.DataFrame(usr.NVRAM)
+    dd['indx'] = np.arange(days)
+    dd['Usage'] = dd['usage'] / 3600
+    dd['Charge'] = dd['charge'] / 3600
+    dd['Speech'] = 100.0 * dd['vad'] / dd['usage']
+    dd['OwnVoice'] = 100.0 * dd['ovd'] / dd['usage']
+    
+    # Plot Own Voice Pickup
+    # plt.figure()
+    # dd.plot()
+    
+    # Plot Voice Overview
+    plt.figure(1)
+    ax = dd.plot.bar(y=['OwnVoice', 'Speech'], stacked=True, rot=0, 
+                     color=['gold', 'darkgoldenrod'],
+                     title='Speech Overview for Client #' + str(usr.id))
+    ax.set_xlabel('Sessions')
+    ax.set_ylabel('Percentage (%)')
+    
+    # Plot Usage Overview
+    plt.figure(2)
+    ax = dd.plot.bar(y=['Usage', 'Charge'], stacked=True, rot=0, 
+                     color=['limegreen', 'steelblue'],
+                     title='Usage Overview for Client #' + str(usr.id))
+    ax.set_xlabel('Sessions')
+    ax.set_ylabel('Hours')
+
+# plt.figure()
+# ax = plt.subplot()
+# p1 = ax.bar(dd['indx'], dd['Usage'], color='limegreen', width=0.4)
+# p2 = ax.bar(dd['indx'], dd['Charge'], bottom = dd['Usage'], width=0.4)
+# ax.legend((p1,p2), ('Usage', 'Charge'), shadow=True, fancybox=True)
+# ax.set_xlabel('Days')
+# ax.set_ylabel('Hours')
+# ax.set_title('Usage Overview for X Client ' + str(usr.id))
