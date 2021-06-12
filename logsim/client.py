@@ -89,7 +89,6 @@ class Client:
             
     # Clear RAM
     def clear_ram(self):
-        self.HI_running = True
         self.RAM['usage'] = 0
         self.RAM['time'] = 0
         for k in self.estimators:
@@ -124,11 +123,12 @@ class Client:
                 # print('Session started @', sec2hms(self.env.now), ', Client: ', self.id)
                 print('Usage started @', self.now2str(), ', Client: ', self.id)
             if self.nvram_str:
-                self.NVRAM['charge'][self.power_cycle] = sec2hms(self.env.now - self.last_updated_at)
+                self.RAM['charge'] += sec2hms(self.env.now - self.last_updated_at)
             else:
-                self.NVRAM['charge'][self.power_cycle] = self.env.now - self.last_updated_at
-            self.clear_ram()
-            self.RAM['charge'] = self.NVRAM['charge'][self.power_cycle]
+                self.RAM['charge'] += self.env.now - self.last_updated_at
+            self.HI_running = True
+            # self.clear_ram()
+            self.NVRAM['charge'][self.power_cycle] = self.RAM['charge']
             self.last_updated_at = self.env.now
             yield self.env.timeout(tick)
 

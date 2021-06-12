@@ -14,7 +14,7 @@ from logsim.datapool import *
 
 #%% Setup environment and run simulation
 days = 16
-verbosity = 1
+verbosity = 2
 sim_start = "2020-03-18 00:00:00"
 
 
@@ -30,18 +30,20 @@ client_cfg = {
     'min_period'   : '6h', 
     'max_period'   : '9h', 
     'nvram_str'    : not plot,
-    'estimators'   : {'ovd'   : {'interval': '10m', 'length': '30s', 'last_updated': 0},
-                      'vad'   : {'interval':  '5m', 'length': '40s', 'last_updated': 0},
-                      'noise' : {'interval':  '7m', 'length':  '1m', 'last_updated': 0},
-                      'music' : {'interval': '10m', 'length': '3m', 'last_updated': 0},
-                      'car'   : {'interval': '15m', 'length': '3m', 'last_updated': 0},
-                      'restaurant' : {'interval':  '15m', 'length':  '2m', 'last_updated': 0},
-                      'traffic'    : {'interval':  '5m', 'length':  '4m', 'last_updated': 0},
+    'estimators'   : {'ovd'      : {'interval': '10m', 'length': '30s', 'last_updated': 0},
+                      'vad'      : {'interval':  '5m', 'length': '40s', 'last_updated': 0},
+                      'noise'    : {'interval':  '7m', 'length':  '1m', 'last_updated': 0},
+                      'ovd-snr-low'  : {'interval': '10m', 'length': '15s', 'last_updated': 0},
+                      'ovd-snr-med'  : {'interval': '20m', 'length': '10s', 'last_updated': 0},
+                      'ovd-snr-high' : {'interval': '30m', 'length': '5s', 'last_updated': 0},
+                      # 'car'   : {'interval': '15m', 'length': '3m', 'last_updated': 0},
+                      # 'restaurant' : {'interval':  '15m', 'length':  '2m', 'last_updated': 0},
+                      # 'traffic'    : {'interval':  '5m', 'length':  '4m', 'last_updated': 0},
                      },
     'detectors'    : {'vcUp'  : '31m',
                       'vcDwn' : '30m',
                      },
-    'app'          : {'on': True, 'diff': True, 'set_time': False, 'interval': '120m'},
+    'app'          : {'on': True, 'diff': True, 'set_time': False, 'interval': '5h'},
     'times_pr_day' : 1 }
 
 # Define environment and client(s)
@@ -52,13 +54,17 @@ usr = Client(0, env, cdp, client_cfg)
 
 #%% Run simulation
 # Run simulation
-env.run(until=hms2sec('{}d:4h'.format(days)))
+env.run(until=hms2sec('{}d:4h'.format(16)))
 
+#%%
 # Test plot
 if plot:
     # Prepare data
     dd=pd.DataFrame(usr.NVRAM)
     dd['indx'] = np.arange(days)
+    # Diff the arrays
+    for x in list(usr.estimators.keys()) + list(usr.detectors.keys()) + ['usage', 'charge']:
+        dd[x][1:] = dd[x].diff()[1:].astype(int)
     dd['Usage'] = dd['usage'] / 3600
     dd['Charge'] = dd['charge'] / 3600
     dd['Speech'] = 100.0 * dd['vad'] / dd['usage']
