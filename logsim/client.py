@@ -222,8 +222,8 @@ class Client:
                 length = min(l2, length)
             yield self.env.timeout(length)
             if self.HI_running:
-                self.RAM[d] += self.env.now
-                - self.estimators[d]['last_updated']
+                self.RAM[d] += (
+                    self.env.now - self.estimators[d]['last_updated'])
                 if self.verbosity > 3:
                     print('@ {}: {} ended, count = {}'.format(
                         self.env.now, d, self.RAM[d]))
