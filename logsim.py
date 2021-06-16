@@ -95,7 +95,6 @@ if plot:
     ax.set_ylabel('Percentage (%)')
 
     # Plot Usage Overview pr Day
-    # plt.figure()
     ax = dd.plot.bar(x='date', y=['Usage Low', 'Usage OK', 'Charge'],
                      stacked=True, color=['red', 'limegreen', 'steelblue'],
                      title='Usage Overview for Client #' + str(usr.id)
