@@ -16,7 +16,7 @@ from logsim.datapool import DataPool
 
 
 # %% Setup environment and run simulation
-months = 12 
+months = 12
 d_array = 31
 days = d_array * (months if months else 1)
 sim_start = "2020-03-02 00:00:00"
@@ -74,7 +74,7 @@ if plot:
     dd['indx'] = np.arange(usr.nvram_array-1)
     # Diff the arrays
     for x in list(usr.estimators.keys()) + list(
-            usr.detectors.keys())+ ['usage', 'charge']:
+            usr.detectors.keys()) + ['usage', 'charge']:
         dd[x] = df[x].diff().loc[1:][:].astype(int)
     dd['Usage'] = dd['usage'] / 3600
     dd['Usage Low'] = dd['Usage']

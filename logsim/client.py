@@ -2,7 +2,7 @@
 """
 Created on Thu May 13 09:01:13 2021
 
-@author: thka 
+@author: thka
 """
 
 # %% Define the Client event generators
@@ -11,6 +11,14 @@ import random
 import logsim.ttime as tt
 
 
+# class Estimator:
+#     """
+#     Class for holding an estimator used in the HI
+#     """
+
+#     def __init__(self, name, RAM, NVRAM, cfg):
+#         self.name = name
+#         self.count = 0
 class Client:
     """
     Class for holding a clients HI with detctors and estimators and an App
@@ -52,8 +60,8 @@ class Client:
         self.pp = pprint.PrettyPrinter(indent=2, width=160)
         # Declare
         self.RAM = {}
-        self.NVRAM = {}
-        self.NVRAM_MONTH = {}
+        self.NVRAM = []
+        self.NVRAM_MONTH = []
         self.HI_running = False
         # Init memory
         self.init_memory()
@@ -73,30 +81,16 @@ class Client:
         self.RAM['charge'] = 0
         self.RAM['usage'] = 0
         self.RAM['time'] = 0
-        # Create NVRAM version of usage : cnt
-        self.NVRAM['charge'] = [0] * self.nvram_array
-        self.NVRAM['usage'] = [0] * self.nvram_array
-        self.NVRAM['time'] = [0] * self.nvram_array
-        self.NVRAM['date'] = [0] * self.nvram_array
-        if self.nvram_month:
-            self.NVRAM_MONTH['charge'] = [0] * self.nvram_month
-            self.NVRAM_MONTH['usage'] = [0] * self.nvram_month
-            self.NVRAM_MONTH['time'] = [0] * self.nvram_month
-            self.NVRAM_MONTH['date'] = [0] * self.nvram_month
+        # Create RAM version of all detectors: (State, cnt)
         for d in self.estimators:
-            # Create RAM version of all detectors: (State, cnt)
             self.RAM[d] = 0
-            # Create NVRAM version of all detectors: cnt
-            self.NVRAM[d] = [0] * self.nvram_array
-            if self.nvram_month:
-                self.NVRAM_MONTH[d] = [0] * self.nvram_month
+        # Create RAM version of all detectors: (State, cnt)
         for d in self.detectors:
-            # Create RAM version of all detectors: (State, cnt)
             self.RAM[d] = 0
-            # Create NVRAM version of all detectors: cnt
-            self.NVRAM[d] = [0] * self.nvram_array
-            if self.nvram_month:
-                self.NVRAM_MONTH[d] = [0] * self.nvram_month
+        # Allocate NVRAM
+        for k in range(self.nvram_array):
+            self.NVRAM.append(self.RAM.copy())
+        self.NVRAM_MONTH = [0] * self.nvram_month
 
     # Clear RAM
     def clear_ram(self):
@@ -144,7 +138,7 @@ class Client:
             self.HI_running = True
             self.RAM['time'] = 0
             # self.clear_ram()
-            self.NVRAM['charge'][pwr_cycle] = self.RAM['charge']
+            self.NVRAM[pwr_cycle]['charge'] = self.RAM['charge']
             self.last_updated_at = self.env.now
             yield self.env.timeout(tick)
 
@@ -156,24 +150,24 @@ class Client:
             self.HI_running = False
             # Write NVRAM
             if self.nvram_str:
-                self.NVRAM['usage'][pwr_cycle] = tt.sec2hms(
+                self.NVRAM[pwr_cycle]['usage'] = tt.sec2hms(
                     int(self.RAM['usage']))
             else:
-                self.NVRAM['usage'][pwr_cycle] = self.RAM['usage']
+                self.NVRAM[pwr_cycle]['usage'] = self.RAM['usage']
             for d in self.detectors:
-                self.NVRAM[d][pwr_cycle] = self.RAM[d]
+                self.NVRAM[pwr_cycle][d] = self.RAM[d]
             for d in self.estimators:
                 if self.nvram_str:
-                    self.NVRAM[d][pwr_cycle] = "{:.2f}%".format(
+                    self.NVRAM[pwr_cycle][d] = "{:.2f}%".format(
                         100.0 * self.RAM[d] / self.RAM['usage'])
                 else:
-                    self.NVRAM[d][pwr_cycle] = self.RAM[d]
+                    self.NVRAM[pwr_cycle][d] = self.RAM[d]
             if self.RAM['time']:
-                self.NVRAM['time'][pwr_cycle] = self.RAM['time']
-                self.NVRAM['date'][pwr_cycle] = tt.time2date(self.RAM['time'])
+                self.NVRAM[pwr_cycle]['time'] = self.RAM['time']
+                self.NVRAM[pwr_cycle]['date'] = tt.time2date(self.RAM['time'])
             else:
-                self.NVRAM['time'][pwr_cycle] = self.power_cycle
-                self.NVRAM['date'][pwr_cycle] = self.power_cycle
+                self.NVRAM[pwr_cycle]['time'] = self.power_cycle
+                self.NVRAM[pwr_cycle]['date'] = self.power_cycle
             if self.verbosity > 1:
                 print('RAM:')
                 self.pp.pprint(self.RAM)
@@ -181,8 +175,7 @@ class Client:
                 self.pp.pprint(self.NVRAM)
             # Check if time to store monthly counters
             if self.nvram_month > 0 and pwr_cycle == 0:
-                for k in self.NVRAM.keys():
-                    self.NVRAM_MONTH[k][month_cycle] = self.NVRAM[k][pwr_cycle]
+                self.NVRAM_MONTH[month_cycle] = self.NVRAM[pwr_cycle].copy()
                 month_cycle = (month_cycle + 1) % self.nvram_month
             self.power_cycle += 1
 
