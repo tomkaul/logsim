@@ -16,7 +16,7 @@ from logsim.datapool import DataPool
 
 
 # %% Setup environment and run simulation
-months = 12
+months = 12 
 d_array = 31
 days = d_array * (months if months else 1)
 sim_start = "2020-03-02 00:00:00"
