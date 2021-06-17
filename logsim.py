@@ -16,11 +16,11 @@ from logsim.datapool import DataPool
 
 
 # %% Setup environment and run simulation
-months = 12
+months = 0
 d_array = 31
 days = d_array * (months if months else 1)
 sim_start = "2020-03-02 00:00:00"
-verbosity = 0
+verbosity = 1
 
 plot = True
 # plot = False
@@ -32,11 +32,11 @@ client_cfg = {
     'nvram_array': d_array,
     'nvram_month': months,
     'sim_start':   sim_start,
-    'min_period': '3h',
+    'min_period': '8h',
     'max_period': '9h',
     'estimators':
-    {'ovd':    {'interval': '30m', 'length': '2m', 'last_updated': 0},
-     'speech': {'interval': '15m', 'length': '3m', 'last_updated': 0},
+    {'ovd':    {'interval': '30m', 'length': '2m', 'inc_len': 1},
+     'speech': {'interval': '30m', 'length': '6m'},
      # 'noise':  {'interval':  '7m', 'length':  '1m', 'last_updated': 0},
      # 'ovd-snr-low':  {'interval': '10m', 'length': '15s', 'last_updated': 0},
      # 'ovd-snr-med':  {'interval': '20m', 'length': '10s', 'last_updated': 0},
@@ -72,8 +72,8 @@ if plot:
     dd = df.loc[1:][:]
     dd['indx'] = np.arange(usr.nvram_array-1)
     # Diff the arrays
-    for x in list(usr.estimators.keys()) + list(
-            usr.detectors.keys()) + ['usage', 'charge']:
+    for x in [x for x in list(df.keys()) if x not in [
+            'id', 'power_cycle', 'time', 'date']]:
         dd[x] = df[x].diff().loc[1:][:].astype(int)
     dd['Usage'] = dd['usage'] / 3600
     dd['Usage Low'] = dd['Usage']
