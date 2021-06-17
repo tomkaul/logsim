@@ -16,7 +16,7 @@ from logsim.datapool import DataPool
 
 
 # %% Setup environment and run simulation
-months = 0
+months = 12
 d_array = 31
 days = d_array * (months if months else 1)
 sim_start = "2020-03-02 00:00:00"
@@ -119,7 +119,7 @@ if plot:
         dm['OwnVoice'] = 100.0 * dm['ovd'] / dd['usage'] / usr.nvram_array
 
         # Plot Voice Overview pr Month
-        rr = None if usr.app['set_time'] else 0
+        rr = None if usr.app and usr.app.set_time else 0
         ax = dm.plot.bar(x='date', y=['OwnVoice', 'Speech'], stacked=True,
                          color=['gold', 'darkgoldenrod'],
                          title='Speech Overview for Client #' + str(usr.id)

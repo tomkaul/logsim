@@ -11,6 +11,58 @@ import random
 import logsim.ttime as tt
 
 
+class App:
+    """
+    Class for holding an App
+    Connected with HI (Client)
+    Can call and get counters
+    Can set the time (date) in the HI
+    """
+
+    #         {'on': True, 'diff': True, 'set_time': True, 'interval': '1h'},
+    def __init__(self, client, env, cdp, cfg, verbosity=3):
+        self.client = client
+        self.env = env
+        self.cdp = cdp
+        self.interval = cfg['interval']
+        self.diff = cfg['diff']
+        self.set_time = cfg['set_time']
+        self.verbosity = verbosity
+        # Start the App
+        self.env.process(self.run())
+
+    def run(self):
+        app_tick = tt.hms2sec(self.interval)
+        app_data = {}
+        last_data = {}
+        while True:
+            yield self.env.timeout(app_tick)
+            if self.client.is_running():
+                # Set timestamp in HI (TE31d)
+                if self.set_time:
+                    self.client.set_time(self.env.now)
+                # Get counters
+                RAM = self.client.get_counters_RAM()
+                for k in RAM.keys():
+                    app_data[k] = RAM[k]
+                if (self.diff and (len(last_data) > 0)):
+                    for e in self.client.estimators:
+                        app_data[e] = '{:.1f}%'.format(
+                            min(100.0, 100.0 * (
+                                app_data[e] - last_data[e]) / app_tick))
+                    for e in self.client.detectors:
+                        app_data[e] = app_data[e] - last_data[e]
+                # Update to app time
+                app_data['time'] = self.client.now2str()
+                self.cdp.put(app_data)
+                for k in RAM.keys():
+                    app_data[k] = RAM[k]
+                if self.verbosity > 2:
+                    print('@ {}: App: {}'.format(app_data['time'], app_data))
+            # else:
+            #     last_data = self.client.get_counters_RAM()
+
+
 # class Estimator:
 #     """
 #     Class for holding an estimator used in the HI
@@ -35,8 +87,9 @@ class Client:
     cfg: Reference to a Configuration dict
     """
 
-    def __init__(self, id, env, data, cfg):
+    def __init__(self, id, env, cdp, cfg):
         # Initialize variables
+        self.HI_running = False
         self.id = id
         self.env = env
         self.last_updated_at = 0
@@ -49,19 +102,18 @@ class Client:
         # Detectors -     name     interval
         self.detectors = cfg['detectors']
         # App
-        self.app = cfg['app']
+        self.app = 0
         self.min_period = tt.hms2sec(cfg['min_period'])
         self.max_period = tt.hms2sec(cfg['max_period'])
         self.times_pr_day = cfg['times_pr_day']
         self.verbosity = cfg['verbosity']
         self.sim_start = tt.str2time(cfg['sim_start'])
-        self.data = data
+        # self.data = data
         self.pp = pprint.PrettyPrinter(indent=2, width=170)
         # Declare
         self.RAM = {}
         self.NVRAM = []
         self.NVRAM_MONTH = []
-        self.HI_running = False
         # Init memory
         self.init_memory()
         # Start the sessions and the detectors and estimators
@@ -70,8 +122,28 @@ class Client:
             self.env.process(self.run_detectors(d))
         for d in self.estimators:
             self.env.process(self.run_estimators(d))
-        if self.app['on']:
-            self.env.process(self.run_app())
+        if cfg['app']['on']:
+            self.app = App(self, self.env, cdp, cfg['app'], self.verbosity)
+            # self.env.process(self.run_app())
+
+    # Check if running
+    def is_running(self):
+        return self.HI_running
+
+    # Return RAM
+    def get_counters_RAM(self):
+        self.update_usage()
+        return self.RAM
+
+    # Return NVRAM
+    def get_counters_NVRAM(self):
+        return self.NVRAM
+
+    # Set time from App
+    def set_time(self, time_stamp):
+        if self.RAM['time'] == 0:
+            self.RAM['time'] = self.sim_start + time_stamp
+            self.RAM['date'] = tt.time2date(self.RAM['time'])
 
     # Init Memory
     def init_memory(self):
@@ -91,7 +163,8 @@ class Client:
         # Allocate NVRAM
         for k in range(self.nvram_array):
             self.NVRAM.append(self.RAM.copy())
-        self.NVRAM_MONTH = [0] * self.nvram_month
+        for k in range(self.nvram_month):
+            self.NVRAM_MONTH.append(self.RAM.copy())
 
     # Print date and time
     def now2str(self):
@@ -132,16 +205,15 @@ class Client:
             self.HI_running = False
             self.update_usage()
             # Write date if set by App
-            if self.RAM['time']:
-                self.RAM['date'] = tt.time2date(self.RAM['time'])
-            else:
+            if self.RAM['time'] == 0:
                 self.RAM['date'] = self.RAM['power_cycle']
             # Copy RAM to NVRAM
             for k in self.RAM.keys():
                 self.NVRAM[pwr_cycle][k] = self.RAM[k]
             # Check if time to store monthly counters
             if self.nvram_month > 0 and pwr_cycle == 0:
-                self.NVRAM_MONTH[month_cycle] = self.NVRAM[pwr_cycle].copy()
+                for k in self.NVRAM[pwr_cycle]:
+                    self.NVRAM_MONTH[month_cycle][k] = self.NVRAM[pwr_cycle][k]
                 month_cycle = (month_cycle + 1) % self.nvram_month
             # Usage ended
             if self.verbosity > 0:
@@ -158,8 +230,9 @@ class Client:
 
     # Update usage counter
     def update_usage(self):
-        self.RAM['usage'] += self.env.now - self.last_updated_at
-        self.last_updated_at = self.env.now
+        if (self.HI_running and (self.env.now > self.last_updated_at)):
+            self.RAM['usage'] += self.env.now - self.last_updated_at
+            self.last_updated_at = self.env.now
 
     # Pretty print RAM, NVRAM etc
     def pprint(self, dct):
@@ -197,31 +270,3 @@ class Client:
                 if self.verbosity > 3:
                     print('@ {}: {} ended, count = {}'.format(
                         self.env.now, d, self.RAM[d]))
-
-    # Start App
-    def run_app(self):
-        app_tick = tt.hms2sec(self.app['interval'])
-        app_data = {}
-        last_data = {}
-        while True:
-            yield self.env.timeout(app_tick)
-            if self.HI_running:
-                self.update_usage()
-                if self.RAM['time'] == 0 and self.app['set_time']:
-                    self.RAM['time'] = self.sim_start + self.env.now
-                app_data = self.RAM.copy()
-                if (self.app['diff'] and (len(last_data) > 0)):
-                    for e in self.estimators:
-                        app_data[e] = '{:.1f}%'.format(
-                            min(100.0, 100.0 * (
-                                app_data[e] - last_data[e]) / app_tick))
-                    for e in self.detectors:
-                        app_data[e] = app_data[e] - last_data[e]
-                # Set app time
-                app_data['time'] = tt.time2str(self.sim_start + self.env.now)
-                self.data.put(app_data)
-                last_data = self.RAM.copy()
-                if self.verbosity > 2:
-                    print('@ {}: App: {}'.format(app_data['time'], app_data))
-            else:
-                last_data = self.RAM
