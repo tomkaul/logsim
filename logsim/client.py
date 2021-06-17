@@ -86,7 +86,7 @@ class Estimator:
 
     # Update counter
     def update_counter(self):
-        if self.running and self.parent_running():
+        if self.running:
             self.RAM[self.name] += self.env.now - self.last_updated
             self.last_updated = self.env.now
 
@@ -309,28 +309,3 @@ class Client:
                 if self.verbosity > 3:
                     print('@ {}: {} fired, count = {}'.format(
                         self.env.now, d, self.RAM[d]))
-
-    # Start HI estimators
-    def run_estimators(self, d):
-        while True:
-            # Start estimator
-            yield self.env.timeout(tt.hms2sec(self.estimators[d]['interval']))
-            # Depend on HI running
-            if self.HI_running:
-                if self.verbosity > 3:
-                    print('@ {}: {} started'.format(self.env.now, d))
-                self.estimators[d]['last_updated'] = self.env.now
-                # End estimator
-                length = tt.hms2sec(self.estimators[d]['length'])
-                if d == 'ovd':
-                    l2 = 6 * length
-                    length += self.RAM['power_cycle']
-                    length = min(l2, length)
-                yield self.env.timeout(length)
-                # Update counter
-                if self.HI_running:
-                    self.RAM[d] += (
-                        self.env.now - self.estimators[d]['last_updated'])
-                    if self.verbosity > 3:
-                        print('@ {}: {} ended, count = {}'.format(
-                            self.env.now, d, self.RAM[d]))

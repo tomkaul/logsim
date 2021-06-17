@@ -20,7 +20,7 @@ months = 0
 d_array = 31
 days = d_array * (months if months else 1)
 sim_start = "2020-03-02 00:00:00"
-verbosity = 1
+verbosity = 2
 
 plot = True
 # plot = False
@@ -48,7 +48,7 @@ client_cfg = {
     'detectors':
         {'vcUp': '131m', 'vcDwn': '130m'},
     'app':
-        {'on': True, 'diff': True, 'set_time': True, 'interval': '1h'},
+        {'on': True, 'diff': True, 'set_time': True, 'interval': '2h'},
     'times_pr_day': 1,
     }
 
