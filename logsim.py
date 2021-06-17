@@ -16,7 +16,7 @@ from logsim.datapool import DataPool
 
 
 # %% Setup environment and run simulation
-months = 12
+months = 0
 d_array = 31
 days = d_array * (months if months else 1)
 sim_start = "2020-03-02 00:00:00"
@@ -34,17 +34,16 @@ client_cfg = {
     'sim_start':   sim_start,
     'min_period': '3h',
     'max_period': '9h',
-    'nvram_str': not plot,
     'estimators':
     {'ovd':    {'interval': '30m', 'length': '2m', 'last_updated': 0},
      'speech': {'interval': '15m', 'length': '3m', 'last_updated': 0},
-     'noise':  {'interval':  '7m', 'length':  '1m', 'last_updated': 0},
-     'ovd-snr-low':  {'interval': '10m', 'length': '15s', 'last_updated': 0},
-     'ovd-snr-med':  {'interval': '20m', 'length': '10s', 'last_updated': 0},
-     'ovd-snr-high': {'interval': '30m', 'length': '5s', 'last_updated': 0},
-     'car':     {'interval': '15m', 'length': '3m', 'last_updated': 0},
-     'cafe':    {'interval':  '15m', 'length':  '2m', 'last_updated': 0},
-     'traffic': {'interval':  '5m', 'length':  '4m', 'last_updated': 0},
+     # 'noise':  {'interval':  '7m', 'length':  '1m', 'last_updated': 0},
+     # 'ovd-snr-low':  {'interval': '10m', 'length': '15s', 'last_updated': 0},
+     # 'ovd-snr-med':  {'interval': '20m', 'length': '10s', 'last_updated': 0},
+     # 'ovd-snr-high': {'interval': '30m', 'length': '5s', 'last_updated': 0},
+     # 'car':     {'interval': '15m', 'length': '3m', 'last_updated': 0},
+     # 'cafe':    {'interval':  '15m', 'length':  '2m', 'last_updated': 0},
+     # 'traffic': {'interval':  '5m', 'length':  '4m', 'last_updated': 0},
      },
     'detectors':
         {'vcUp': '131m', 'vcDwn': '130m'},

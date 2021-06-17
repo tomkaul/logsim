@@ -40,7 +40,7 @@ class Client:
         self.id = id
         self.env = env
         self.last_updated_at = 0
-        self.power_cycle = 0
+        # self.power_cycle = 0
         # Size of NVRAM arrays
         self.nvram_array = cfg['nvram_array']
         self.nvram_month = cfg['nvram_month']
@@ -53,11 +53,10 @@ class Client:
         self.min_period = tt.hms2sec(cfg['min_period'])
         self.max_period = tt.hms2sec(cfg['max_period'])
         self.times_pr_day = cfg['times_pr_day']
-        self.nvram_str = cfg['nvram_str']
         self.verbosity = cfg['verbosity']
         self.sim_start = tt.str2time(cfg['sim_start'])
         self.data = data
-        self.pp = pprint.PrettyPrinter(indent=2, width=160)
+        self.pp = pprint.PrettyPrinter(indent=2, width=170)
         # Declare
         self.RAM = {}
         self.NVRAM = []
@@ -78,9 +77,11 @@ class Client:
     def init_memory(self):
         # Create RAM version of client-ID and usage
         self.RAM['id'] = self.id
+        self.RAM['power_cycle'] = 0
         self.RAM['charge'] = 0
         self.RAM['usage'] = 0
         self.RAM['time'] = 0
+        self.RAM['date'] = 0
         # Create RAM version of all detectors: (State, cnt)
         for d in self.estimators:
             self.RAM[d] = 0
@@ -91,15 +92,6 @@ class Client:
         for k in range(self.nvram_array):
             self.NVRAM.append(self.RAM.copy())
         self.NVRAM_MONTH = [0] * self.nvram_month
-
-    # Clear RAM
-    def clear_ram(self):
-        self.RAM['usage'] = 0
-        self.RAM['time'] = 0
-        for k in self.estimators:
-            self.RAM[k] = 0
-        for k in self.detectors:
-            self.RAM[k] = 0
 
     # Print date and time
     def now2str(self):
@@ -113,12 +105,12 @@ class Client:
         month_cycle = 0
         while True:
             # Create index for RAM and MVRAM arrays
-            pwr_cycle = self.power_cycle % self.nvram_array
+            pwr_cycle = self.RAM['power_cycle'] % self.nvram_array
             # Start by Charging
             cycle = int(24 / self.times_pr_day)
             tick = random.randint(self.min_period, self.max_period)
-            chg = tt.hms2sec('{}h'.format(cycle)) - tick
-            + random.randint(0, 600) - 300
+            chg = tt.hms2sec(
+                '{}h'.format(cycle)) - tick + random.randint(0, 600) - 300
             if first_day:
                 chg -= tt.hms2sec('8h')
                 first_day = False
@@ -128,56 +120,41 @@ class Client:
             yield self.env.timeout(chg)
 
             # Start session (HI removed from Charger)
+            self.HI_running = True
             if self.verbosity > 0:
                 print('Usage started @', self.now2str(), ', Client: ', self.id)
-            if self.nvram_str:
-                self.RAM['charge'] += tt.sec2hms(self.env.now
-                                                 - self.last_updated_at)
-            else:
-                self.RAM['charge'] += self.env.now - self.last_updated_at
-            self.HI_running = True
+            self.RAM['charge'] += self.env.now - self.last_updated_at
             self.RAM['time'] = 0
-            # self.clear_ram()
-            self.NVRAM[pwr_cycle]['charge'] = self.RAM['charge']
             self.last_updated_at = self.env.now
             yield self.env.timeout(tick)
 
-            # End Session (HI into Charger)
+            # End usage session (HI into Charger)
+            self.HI_running = False
+            self.update_usage()
+            # Write date if set by App
+            if self.RAM['time']:
+                self.RAM['date'] = tt.time2date(self.RAM['time'])
+            else:
+                self.RAM['date'] = self.RAM['power_cycle']
+            # Copy RAM to NVRAM
+            for k in self.RAM.keys():
+                self.NVRAM[pwr_cycle][k] = self.RAM[k]
+            # Check if time to store monthly counters
+            if self.nvram_month > 0 and pwr_cycle == 0:
+                self.NVRAM_MONTH[month_cycle] = self.NVRAM[pwr_cycle].copy()
+                month_cycle = (month_cycle + 1) % self.nvram_month
+            # Usage ended
             if self.verbosity > 0:
                 print('Usage ended   @',
                       self.now2str(), ', Client: ', self.id)
-            self.update_usage()
-            self.HI_running = False
-            # Write NVRAM
-            if self.nvram_str:
-                self.NVRAM[pwr_cycle]['usage'] = tt.sec2hms(
-                    int(self.RAM['usage']))
-            else:
-                self.NVRAM[pwr_cycle]['usage'] = self.RAM['usage']
-            for d in self.detectors:
-                self.NVRAM[pwr_cycle][d] = self.RAM[d]
-            for d in self.estimators:
-                if self.nvram_str:
-                    self.NVRAM[pwr_cycle][d] = "{:.2f}%".format(
-                        100.0 * self.RAM[d] / self.RAM['usage'])
-                else:
-                    self.NVRAM[pwr_cycle][d] = self.RAM[d]
-            if self.RAM['time']:
-                self.NVRAM[pwr_cycle]['time'] = self.RAM['time']
-                self.NVRAM[pwr_cycle]['date'] = tt.time2date(self.RAM['time'])
-            else:
-                self.NVRAM[pwr_cycle]['time'] = self.power_cycle
-                self.NVRAM[pwr_cycle]['date'] = self.power_cycle
+            # Show memory content
             if self.verbosity > 1:
                 print('RAM:')
                 self.pp.pprint(self.RAM)
                 print('NVRAM:')
                 self.pp.pprint(self.NVRAM)
-            # Check if time to store monthly counters
-            if self.nvram_month > 0 and pwr_cycle == 0:
-                self.NVRAM_MONTH[month_cycle] = self.NVRAM[pwr_cycle].copy()
-                month_cycle = (month_cycle + 1) % self.nvram_month
-            self.power_cycle += 1
+            # inc power_cycle to prepare for next session
+            self.RAM['power_cycle'] += 1
 
     # Update usage counter
     def update_usage(self):
@@ -211,7 +188,7 @@ class Client:
             length = tt.hms2sec(self.estimators[d]['length'])
             if d == 'ovd':
                 l2 = 6 * length
-                length += self.power_cycle
+                length += self.RAM['power_cycle']
                 length = min(l2, length)
             yield self.env.timeout(length)
             if self.HI_running:
