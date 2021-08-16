@@ -13,20 +13,21 @@ import logsim.ttime as tt
 
 class App:
     """
-    Class for holding an App connected with HI (Client)
+    Class for holding an App connected with HI
     Can call and get HI counters
     Can set the time (date) in the HI
     """
 
     # Constructor
-    def __init__(self, client, env, cdp, cfg, verbosity=3):
-        self.client = client
+    def __init__(self, HI, env, cdp, cfg, verbosity=3):
+        self.HI = HI
         self.env = env
         self.cdp = cdp
         self.interval = cfg['interval']
         self.diff = cfg['diff']
         self.set_time = cfg['set_time']
         self.verbosity = verbosity
+        self.timelog = {}
         # Start the App
         self.env.process(self.run())
 
@@ -37,29 +38,33 @@ class App:
         last_data = {}
         while True:
             yield self.env.timeout(app_tick)
-            if self.client.is_running():
+            if self.HI.is_running():
                 # Set timestamp in HI (TE31d)
                 if self.set_time:
-                    self.client.set_time(self.env.now)
+                    self.HI.set_time(self.env.now)
                 # Get counters
-                RAM = self.client.get_counters_RAM()
+                RAM = self.HI.get_counters_RAM()
                 for k in RAM.keys():
                     app_data[k] = RAM[k]
+                # Update timelog
+                if app_data['power_cycle'] not in self.timelog.keys():
+                    self.timelog[app_data['power_cycle']] = (
+                        self.HI.now2str(), app_data['usage'])
                 if (self.diff and (len(last_data) > 0)):
-                    for e in self.client.estimators:
+                    for e in self.HI.estimators:
                         app_data[e] = '{:.1f}%'.format(
                             100.0 * (app_data[e] - last_data[e]) / app_tick)
-                    for e in self.client.detectors:
+                    for e in self.HI.detectors:
                         app_data[e] = app_data[e] - last_data[e]
                 # Update to app time
-                app_data['time'] = self.client.now2str()
+                app_data['time'] = self.HI.now2str()
                 self.cdp.put(app_data)
                 for k in RAM.keys():
                     last_data[k] = RAM[k]
                 if self.verbosity > 2:
                     print('@ {}: App: {}'.format(app_data['time'], app_data))
             # else:
-            #     last_data = self.client.get_counters_RAM()
+            #     last_data = self.HI.get_counters_RAM()
 
 
 class Estimator:
@@ -68,19 +73,21 @@ class Estimator:
     """
 
     # Constructor
-    def __init__(self, name, client, env, RAM, cfg, parent_running, verbosity):
+    def __init__(self, name, HI, env, RAM, cfg, parent_running, verbosity):
         self.name = name
-        self.client = client
+        self.HI = HI
         self.env = env
         self.RAM = RAM
         self.count = 0
         self.last_updated = 0
         self.interval = tt.hms2sec(cfg['interval'])
         self.length = tt.hms2sec(cfg['length'])
+        self.org_length = self.length
         self.running = False
         self.parent_running = parent_running
         self.verbosity = verbosity
-        self.inc_len = cfg['inc_len'] if 'inc_len' in cfg else 0
+        self.inc_d = tt.hms2sec(cfg['inc_d']) if 'inc_d' in cfg else 0
+        self.inc_m = tt.hms2sec(cfg['inc_m']) if 'inc_m' in cfg else 0
         # Start the estimator
         self.env.process(self.run())
 
@@ -94,43 +101,55 @@ class Estimator:
     def set_parent(self, parent):
         self.parent_running = parent
 
+    # Inc length
+    def increase_daily(self):
+        # Pick-up on length?
+        if self.inc_d:
+            # Max 3 times initial length
+            self.length = min(3*self.org_length, self.length + self.inc_d)
+
+    # Inc length
+    def increase_monthly(self):
+        # Pick-up on length?
+        if self.inc_m:
+            # Max 3 times initial length
+            self.length = min(4*self.org_length, self.length + self.inc_m)
+
     # Run the Estimator
     def run(self):
         # Default length
         length = 0
         while True:
-            # Start estimator
-            yield self.env.timeout(self.interval-length)
             # Depend on HI running
             if self.parent_running():
+                # Start estimator
+                yield self.env.timeout(self.interval-length)
                 self.running = True
                 self.last_updated = self.env.now
                 if self.verbosity > 3:
                     print('@ {}: {} started'.format(
-                        self.client.now2str(), self.name))
+                        self.HI.now2str(), self.name))
                 # End estimator
-                length = self.length if length == 0 else length
-                # Pick-up on length?
-                if self.inc_len:
-                    # Max 3 times initial length
-                    length = min(3*self.length, length + self.inc_len)
-                yield self.env.timeout(length)
+                yield self.env.timeout(self.length)
                 # Update counter
                 self.update_counter()
                 if self.verbosity > 3:
                     print('@ {}: {} ended, count = {}'.format(
-                        self.client.now2str(), self.name, self.RAM[self.name]))
+                        self.HI.now2str(), self.name, self.RAM[self.name]))
                 self.running = False
+            else:
+                # Kill time
+                yield self.env.timeout(self.interval)
 
 
-class Client:
+class HI:
     """
-    Class for holding a clients HI with detctors and estimators and an App
+    Class for holding a HI with detctors and estimators and an App
     that can sample the logging data from the HI
     Init Parameters
     ---------------
     id: numeric
-         An identification number unique to this client
+         An identification number unique to this HI
 
     env: Reference to a simpy environment object
 
@@ -150,9 +169,9 @@ class Client:
         # Size of NVRAM arrays
         self.nvram_array = cfg['nvram_array']
         self.nvram_month = cfg['nvram_month']
-        # Estimators -     name        interval           length
+        # Estimators
         self.estimators = {}
-        # Detectors -     name     interval
+        # Detectors
         self.detectors = cfg['detectors']
         # App
         self.app = 0
@@ -169,6 +188,8 @@ class Client:
         self.NVRAM_MONTH = []
         # Init memory
         self.init_memory(cfg)
+        # Start daily ticks
+        self.env.process(self.run_daily())
         # Start the sessions and the detectors and estimators
         self.env.process(self.run_sessions())
         for d in self.detectors:
@@ -215,7 +236,7 @@ class Client:
 
     # Init Memory
     def init_memory(self, cfg):
-        # Create RAM version of client-ID and usage
+        # Create RAM version of HI-ID and usage
         self.RAM['id'] = self.id
         self.RAM['power_cycle'] = 0
         self.RAM['charge'] = 0
@@ -237,6 +258,28 @@ class Client:
     # Print date and time
     def now2str(self):
         return tt.time2str(self.sim_start + self.env.now)
+
+    # Run daily
+    def run_daily(self):
+        t_24h = tt.hms2sec('24h')
+        cnt = 0
+        while True:
+            yield self.env.timeout(t_24h)
+            # Inc daily counter
+            cnt += 1
+            # Increase estimators
+            for e in self.estimators.keys():
+                self.estimators[e].increase_daily()
+            if self.verbosity > 0:
+                print('Daily tick    @', self.now2str(),
+                      ', HI: ', self.id, ', day:   ', cnt)
+            if (cnt % 30 == 0):
+                # Increase estimators
+                for e in self.estimators.keys():
+                    self.estimators[e].increase_monthly()
+                if self.verbosity > 0:
+                    print('Monthly tick  @', self.now2str(),
+                          ', HI: ', self.id, ', month: ', int(cnt/30))
 
     # Sessions
     def run_sessions(self):
@@ -263,7 +306,7 @@ class Client:
             # Start session (HI removed from Charger)
             self.HI_running = True
             if self.verbosity > 0:
-                print('Usage started @', self.now2str(), ', Client: ', self.id)
+                print('Usage started @', self.now2str(), ', HI: ', self.id)
             self.RAM['charge'] += self.env.now - self.last_updated_at
             self.RAM['time'] = 0
             self.last_updated_at = self.env.now
@@ -286,7 +329,7 @@ class Client:
             # Usage ended
             if self.verbosity > 0:
                 print('Usage ended   @',
-                      self.now2str(), ', Client: ', self.id)
+                      self.now2str(), ', HI: ', self.id)
             # Show memory content
             if self.verbosity > 1:
                 print('RAM:')
@@ -304,7 +347,7 @@ class Client:
     def run_detectors(self, d):
         while True:
             yield self.env.timeout(tt.hms2sec(self.detectors[d]))
-            if self.HI_running:
+            if self.is_running():
                 self.RAM[d] = self.RAM[d] + 1
                 if self.verbosity > 3:
                     print('@ {}: {} fired, count = {}'.format(
