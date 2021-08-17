@@ -6,6 +6,9 @@ Created on Thu May 13 09:01:13 2021
 """
 
 # %% Define the Client event generators
+# import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import pprint
 import random
 import logsim.ttime as tt
@@ -19,52 +22,81 @@ class App:
     """
 
     # Constructor
-    def __init__(self, HI, env, cdp, cfg, verbosity=3):
+    def __init__(self, HI, env, cdp, cfg, verbosity, sim_start):
         self.HI = HI
         self.env = env
-        self.cdp = cdp
+        self.cdp_app_hourly = cdp.getAppHourly()
+        self.cdp_app_daily = cdp.getAppDaily()
         self.interval = cfg['interval']
         self.diff = cfg['diff']
-        self.set_time = cfg['set_time']
         self.verbosity = verbosity
+        self.sim_start = sim_start
         self.timelog = {}
         # Start the App
         self.env.process(self.run())
+
+    # Return date and time
+    def time2str(self):
+        return tt.time2str(self.sim_start + self.env.now)
+
+    # Return date and time
+    def date2str(self):
+        return tt.time2date(self.sim_start + self.env.now)
 
     # Run the App
     def run(self):
         app_tick = tt.hms2sec(self.interval)
         app_data = {}
         last_data = {}
+        yesterday_data = {}
+        yesterday_stored = False
         while True:
             yield self.env.timeout(app_tick)
             if self.HI.is_running():
-                # Set timestamp in HI (TE31d)
-                if self.set_time:
-                    self.HI.set_time(self.env.now)
-                # Get counters
+                # Get current RAM counters
                 RAM = self.HI.get_counters_RAM()
                 for k in RAM.keys():
                     app_data[k] = RAM[k]
+                # Update to app time
+                app_data['time'] = self.time2str()
+                app_data['date'] = self.date2str()
                 # Update timelog
                 if app_data['power_cycle'] not in self.timelog.keys():
                     self.timelog[app_data['power_cycle']] = (
-                        self.HI.now2str(), app_data['usage'])
+                        app_data['time'], app_data['usage'])
+                # Detectors/Estimators in diff/percentage?
                 if (self.diff and (len(last_data) > 0)):
+                    for e in self.HI.detectors:
+                        app_data[e] = app_data[e] - last_data[e]
                     for e in self.HI.estimators:
                         app_data[e] = '{:.1f}%'.format(
                             100.0 * (app_data[e] - last_data[e]) / app_tick)
-                    for e in self.HI.detectors:
-                        app_data[e] = app_data[e] - last_data[e]
-                # Update to app time
-                app_data['time'] = self.HI.now2str()
-                self.cdp.put(app_data)
+
+                # Store in hourly DB
+                self.cdp_app_hourly.put(app_data)
                 for k in RAM.keys():
                     last_data[k] = RAM[k]
+
+                # Store in daily DB
+                if not yesterday_stored and self.HI.get_yesterdays_counters():
+                    # Get yesterdays counters
+                    y_cnt = self.HI.get_yesterdays_counters()
+                    for k in y_cnt.keys():
+                        yesterday_data[k] = y_cnt[k]
+                    # Get yesterdays power_cycle
+                    pwr_cyc = yesterday_data['power_cycle']
+                    yesterday_data['time'] = self.timelog[pwr_cyc][0]
+                    yesterday_data['date'] = \
+                        yesterday_data['time'].split(' ')[0]
+                    yesterday_data['usage-at-time'] = self.timelog[pwr_cyc][1]
+                    self.cdp_app_daily.put(yesterday_data)
+                    yesterday_stored = True
+                # Log
                 if self.verbosity > 2:
                     print('@ {}: App: {}'.format(app_data['time'], app_data))
-            # else:
-            #     last_data = self.HI.get_counters_RAM()
+            else:
+                # Prepare next day
+                yesterday_stored = False
 
 
 class Estimator:
@@ -180,12 +212,16 @@ class HI:
         self.times_pr_day = cfg['times_pr_day']
         self.verbosity = cfg['verbosity']
         self.sim_start = tt.str2time(cfg['sim_start'])
+        # Prepare FSW writing of data
+        self.fsw_visits = cfg['fsw-visits']
+        self.cdp_fsw_daily = cdp.getFswDaily()
         # self.data = data
         self.pp = pprint.PrettyPrinter(indent=2, width=170)
         # Declare
         self.RAM = {}
         self.NVRAM = []
         self.NVRAM_MONTH = []
+        self.NVRAM_yesterday = 0
         # Init memory
         self.init_memory(cfg)
         # Start daily ticks
@@ -200,7 +236,8 @@ class HI:
                 d, self, self.env, self.RAM, cfg['estimators'][d],
                 self.is_running, self.verbosity)
         if cfg['app']['on']:
-            self.app = App(self, self.env, cdp, cfg['app'], self.verbosity)
+            self.app = App(self, self.env, cdp, cfg['app'],
+                           self.verbosity, self.sim_start)
 
     # Check if running
     def is_running(self):
@@ -216,6 +253,10 @@ class HI:
     def get_counters_NVRAM(self):
         return self.NVRAM
 
+    # Get yeterdays counters
+    def get_yesterdays_counters(self):
+        return self.NVRAM_yesterday
+
     # Update usage counter
     def update_usage(self):
         if (self.HI_running and (self.env.now > self.last_updated_at)):
@@ -228,12 +269,6 @@ class HI:
             for e in self.estimators.keys():
                 self.estimators[e].update_counter()
 
-    # Set time from App
-    def set_time(self, time_stamp):
-        if self.RAM['time'] == 0:
-            self.RAM['time'] = self.sim_start + time_stamp
-            self.RAM['date'] = tt.time2date(self.RAM['time'])
-
     # Init Memory
     def init_memory(self, cfg):
         # Create RAM version of HI-ID and usage
@@ -241,8 +276,8 @@ class HI:
         self.RAM['power_cycle'] = 0
         self.RAM['charge'] = 0
         self.RAM['usage'] = 0
-        self.RAM['time'] = 0
-        self.RAM['date'] = 0
+        # self.RAM['time'] = 0
+        # self.RAM['date'] = 0
         # Create RAM version of all detectors: (State, cnt)
         for d in cfg['estimators']:
             self.RAM[d] = 0
@@ -254,10 +289,6 @@ class HI:
             self.NVRAM.append(self.RAM.copy())
         for k in range(self.nvram_month):
             self.NVRAM_MONTH.append(self.RAM.copy())
-
-    # Print date and time
-    def now2str(self):
-        return tt.time2str(self.sim_start + self.env.now)
 
     # Run daily
     def run_daily(self):
@@ -273,13 +304,19 @@ class HI:
             if self.verbosity > 0:
                 print('Daily tick    @', self.now2str(),
                       ', HI: ', self.id, ', day:   ', cnt)
+            # Monthly stuff
             if (cnt % 30 == 0):
+                month_cnt = cnt/30
                 # Increase estimators
                 for e in self.estimators.keys():
                     self.estimators[e].increase_monthly()
+                # Potentially store in FSW DB
+                if month_cnt in self.fsw_visits:
+                    for n in self.NVRAM:
+                        self.cdp_fsw_daily.put(n)
                 if self.verbosity > 0:
                     print('Monthly tick  @', self.now2str(),
-                          ', HI: ', self.id, ', month: ', int(cnt/30))
+                          ', HI: ', self.id, ', month: ', int(month_cnt))
 
     # Sessions
     def run_sessions(self):
@@ -288,7 +325,7 @@ class HI:
         pwr_cycle = 0
         month_cycle = 0
         while True:
-            # Create index for RAM and MVRAM arrays
+            # Create index for RAM and NVRAM arrays
             pwr_cycle = self.RAM['power_cycle'] % self.nvram_array
             # Start by Charging
             cycle = int(24 / self.times_pr_day)
@@ -313,14 +350,13 @@ class HI:
             yield self.env.timeout(tick)
 
             # End usage session (HI into Charger)
-            self.HI_running = False
             self.update_usage()
-            # Write date if set by App
-            if self.RAM['time'] == 0:
-                self.RAM['date'] = self.RAM['power_cycle']
+            self.HI_running = False
             # Copy RAM to NVRAM
             for k in self.RAM.keys():
                 self.NVRAM[pwr_cycle][k] = self.RAM[k]
+            # Store as yesterdays counters
+            self.NVRAM_yesterday = self.NVRAM[pwr_cycle]
             # Check if time to store monthly counters
             if self.nvram_month > 0 and pwr_cycle == 0:
                 for k in self.NVRAM[pwr_cycle]:
@@ -352,3 +388,49 @@ class HI:
                 if self.verbosity > 3:
                     print('@ {}: {} fired, count = {}'.format(
                         self.env.now, d, self.RAM[d]))
+
+    # Plot monthly data
+    def plotMonthlyData(self):
+        if self.nvram_month:
+            dd = pd.DataFrame(self.NVRAM_MONTH)
+            dm = dd.loc[1:][:]
+            dm['indx'] = np.arange(self.nvram_month-1)
+            # Diff the arrays
+            for x in list(self.estimators.keys())\
+                    + list(self.detectors.keys()) + ['usage', 'charge']:
+                dm[x] = dd[x].diff().loc[1:][:].astype(int)
+            dm['Usage'] = dm['usage'] / 3600 / self.nvram_array
+            dm['Charge'] = dm['charge'] / 3600 / self.nvram_array
+            dm['Speech'] = 100.0 * dm['speech'] / dm['usage']\
+                / self.nvram_array
+            dm['OwnVoice'] = 100.0 * dm['ovd'] / dm['usage'] / self.nvram_array
+
+            # Plot Voice Overview pr Month
+            ax = dm.plot.bar(x='power_cycle', y=['OwnVoice', 'Speech'],
+                             stacked=True, color=['gold', 'darkgoldenrod'],
+                             title='Speech Overview for HI #' + str(self.id)
+                             + ', Month view')
+            ax.set_xlabel('Sessions')
+            ax.set_ylabel('Percentage (%)')
+
+            # Plot OVD pr SNR pr Month
+            if 'ovd-snr-low' in dd.keys():
+                dm['OVD-snr-low'] = 100.0 * dm['ovd-snr-low'] / dm['usage']
+                dm['OVD-snr-med'] = 100.0 * dm['ovd-snr-med'] / dm['usage']
+                dm['OVD-snr-high'] = 100.0 * dm['ovd-snr-high'] / dm['usage']
+                ax = dm.plot.bar(x='power_cycle', y=[
+                            'OVD-snr-low', 'OVD-snr-med', 'OVD-snr-high'],
+                            stacked=True,
+                            color=['orangered', 'orange', 'greenyellow'],
+                            title='OVR pr SNR Overview for HI #' + str(self.id)
+                            + ', Day view')
+                ax.set_xlabel('Sessions')
+                ax.set_ylabel('Percentage (%)')
+
+            # Plot Usage Overview pr Month
+            ax = dm.plot.bar(x='power_cycle', y=['Usage', 'Charge'],
+                             stacked=True, color=['limegreen', 'steelblue'],
+                             title='Usage Overview for HI #' + str(self.id)
+                             + ', Month view')
+            ax.set_xlabel('Sessions')
+            ax.set_ylabel('Hours')
