@@ -8,10 +8,10 @@ Created on Thu May 13 09:01:13 2021
 # %% Import essentials
 import simpy
 import logsim.ttime as tt
-from logsim.client import HI
+from logsim.hi import HI
 from logsim.datapool import CDP
 
-# %% Setup environment and run simulation
+# %% Configure simulation
 months = 12
 d_array = 31
 days = d_array * (months if months else 1)
@@ -20,6 +20,8 @@ verbosity = 0
 
 plot = True
 # plot = False
+
+# Create Common Data Platform
 cdp = CDP()
 
 # Configure HI
@@ -41,11 +43,9 @@ HI_cfg0 = {
      # 'cafe':    {'interval':  '15m', 'length':  '2m'},
      # 'traffic': {'interval':  '5m', 'length':  '4m'},
      },
-    'detectors':
-        {'vcUp': '131m', 'vcDwn': '130m'},
-    'app':
-        {'on': True, 'diff': True, 'interval': '1h'},
-    'fsw-visits': [1, 6, 12],
+    'detectors': {'vcUp': '131m', 'vcDwn': '130m'},
+    'app': {'on': True, 'diff': True, 'interval': '1h'},
+    'fsw': {'visits': [1, 6, 12]},
     'times_pr_day': 1,
     }
 HI_cfg1 = {
@@ -66,11 +66,9 @@ HI_cfg1 = {
      # 'cafe':    {'interval':  '15m', 'length':  '2m'},
      # 'traffic': {'interval':  '5m', 'length':  '4m'},
      },
-    'detectors':
-        {'vcUp': '131m', 'vcDwn': '130m'},
-    'app':
-        {'on': True, 'diff': True, 'interval': '1h'},
-    'fsw-visits': [1, 6, 12],
+    'detectors': {'vcUp': '131m', 'vcDwn': '130m'},
+    'app': {'on': True, 'diff': True, 'interval': '1h'},
+    'fsw': {'visits': [1, 6, 12]},
     'times_pr_day': 1,
     }
 HI_cfg2 = {
@@ -91,28 +89,31 @@ HI_cfg2 = {
      # 'cafe':    {'interval':  '15m', 'length':  '2m'},
      # 'traffic': {'interval':  '5m', 'length':  '4m'},
      },
-    'detectors':
-        {'vcUp': '131m', 'vcDwn': '130m'},
-    'app':
-        {'on': True, 'diff': True, 'interval': '1h'},
-    'fsw-visits': [1, 6, 12],
+    'detectors': {'vcUp': '131m', 'vcDwn': '130m'},
+    'app': {'on': True, 'diff': True, 'interval': '1h'},
+    'fsw': {'visits': [1, 6, 12]},
     'times_pr_day': 1,
     }
 
 
-# Define environment and HI(s)
+# %% Define environment and HI(s)
 env = simpy.Environment()
-# One user?
-# hi = HI(0, env, cdp, HI_cfg0)
-# Or many users?
+# User 0
+hi = HI(0, env, cdp, HI_cfg0)
+
+
+# %% More users?
 users = {}
-for i in range(0, 8):
-    users[i] = HI(i, env, cdp, HI_cfg0)
-for i in range(8, 15):
-    users[i] = HI(i, env, cdp, HI_cfg1)
-for i in range(15, 20):
-    users[i] = HI(i, env, cdp, HI_cfg2)
-hi = users[0]
+def more_users(users):
+    for i in range(1, 8):
+        users[i] = HI(i, env, cdp, HI_cfg0)
+    for i in range(8, 15):
+        users[i] = HI(i, env, cdp, HI_cfg1)
+    for i in range(15, 20):
+        users[i] = HI(i, env, cdp, HI_cfg2)
+
+# Comment out if you want only one user
+# more_users(users)
 
 # %% Run simulation
 print('Simulation started @ ' + sim_start)
@@ -121,8 +122,7 @@ print('Simulation ended   @ ' + tt.time2str(tt.str2time(sim_start) + env.now))
 
 cdp.saveAsCSV(ver='02')
 
-# %%
-# Test plot
-# if plot:
-#     cdp.plotDaily()
-#     hi.plotMonthlyData()
+# %% Test plot
+if plot:
+    cdp.plotDaily()
+    hi.plotMonthlyData()

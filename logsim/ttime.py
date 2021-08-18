@@ -8,8 +8,9 @@ Created on Thu May 13 09:01:13 2021
 # %% Define the time functions
 import math
 import time
+import random
 
-
+# %% Time related functions
 def time2str(t=0):
     return time.strftime('%Y-%m-%d %H:%M:%S',
                          time.localtime(t) if t else time.localtime())
@@ -50,3 +51,9 @@ def hms2sec(hms):
         else:
             sec = sec + int(s)
     return sec
+
+
+# %% Random functions
+# Randomize an integer by 10 pct (configurable)
+def intRndPct(n, pct=20):
+    return int(n * (100.0 + random.uniform(-pct, pct)) / 100.0)

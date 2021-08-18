@@ -4,7 +4,7 @@ Created on Tue Aug 17 09:03:45 2021
 
 @author: thka
 """
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -16,7 +16,7 @@ cdp0 = CDP()
 cdp0.loadAsCSV(ver='02')
 
 # %% Plot daily stuff
-user=
+user = 0
 cdp0.plotDaily(user_id=user)
 
 # %% Plot daily stuff
@@ -29,24 +29,31 @@ da = pd.DataFrame(data=sorted(df['id'].unique()),
                   columns=['user_id'])
 
 # Prepare features
-features = ['usage', 'charge', 'ovd-inc', 'speech-inc', 'ovd-snr-low-inc']
+features = ['usage', 'ovd-inc', 'speech-inc', 'ovd-snr-low-inc']
 zeros = np.zeros((len(da), len(features)))
 da = da.join(pd.DataFrame(data=zeros, columns=features))
 da.set_index('user_id', inplace=True)
 # print(da)
 
 # Extract features for each client
+secPyear = 365 * 3600
 for i, row in da.iterrows():
     di = df.loc[df['id'] == i]
-    row['usage'] = di.iloc[-1]['usage']
-    row['charge'] = di.iloc[-1]['charge']
-    row['ovd-inc'] = di.iloc[-1]['ovd'] - di.iloc[0]['ovd']
-    row['speech-inc'] = di.iloc[-1]['speech'] - di.iloc[0]['speech']
-    row['ovd-snr-low-inc'] = di.iloc[-1]['ovd-snr-low']
-    - di.iloc[0]['ovd-snr-low']
+    row['usage'] = di.iloc[-1]['usage'] / secPyear
+    # row['charge'] = di.iloc[-1]['charge'] / secPyear
+    row['ovd-inc'] = (di.iloc[-1]['ovd'] - di.iloc[0]['ovd']) / secPyear
+    row['speech-inc'] = (di.iloc[-1]['speech'] - di.iloc[0]['speech'])\
+        / secPyear
+    row['ovd-snr-low-inc'] = (di.iloc[-1]['ovd-snr-low']
+                              - di.iloc[0]['ovd-snr-low']) / secPyear
 
 # print(da)
 # penguins = sns.load_dataset("penguins")
 sns.color_palette("tab10")
-sns.pairplot(da, hue="ovd-inc")
+sns.pairplot(da, hue="speech-inc")
 # sns.color_palette("coolwarm", as_cmap=True)
+
+# %%
+penguins = sns.load_dataset("penguins")
+sns.color_palette("tab10")
+sns.pairplot(penguins, hue="species")

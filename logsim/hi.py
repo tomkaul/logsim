@@ -11,94 +11,12 @@ import numpy as np
 import pandas as pd
 import pprint
 import random
+import logsim.app as App
+import logsim.fsw as Fsw
 import logsim.ttime as tt
 
 
-class App:
-    """
-    Class for holding an App connected with HI
-    Can call and get HI counters
-    Can set the time (date) in the HI
-    """
-
-    # Constructor
-    def __init__(self, HI, env, cdp, cfg, verbosity, sim_start):
-        self.HI = HI
-        self.env = env
-        self.cdp_app_hourly = cdp.getAppHourly()
-        self.cdp_app_daily = cdp.getAppDaily()
-        self.interval = cfg['interval']
-        self.diff = cfg['diff']
-        self.verbosity = verbosity
-        self.sim_start = sim_start
-        self.timelog = {}
-        # Start the App
-        self.env.process(self.run())
-
-    # Return date and time
-    def time2str(self):
-        return tt.time2str(self.sim_start + self.env.now)
-
-    # Return date and time
-    def date2str(self):
-        return tt.time2date(self.sim_start + self.env.now)
-
-    # Run the App
-    def run(self):
-        app_tick = tt.hms2sec(self.interval)
-        app_data = {}
-        last_data = {}
-        yesterday_data = {}
-        yesterday_stored = False
-        while True:
-            yield self.env.timeout(app_tick)
-            if self.HI.is_running():
-                # Get current RAM counters
-                RAM = self.HI.get_counters_RAM()
-                for k in RAM.keys():
-                    app_data[k] = RAM[k]
-                # Update to app time
-                app_data['time'] = self.time2str()
-                app_data['date'] = self.date2str()
-                # Update timelog
-                if app_data['power_cycle'] not in self.timelog.keys():
-                    self.timelog[app_data['power_cycle']] = (
-                        app_data['time'], app_data['usage'])
-                # Detectors/Estimators in diff/percentage?
-                if (self.diff and (len(last_data) > 0)):
-                    for e in self.HI.detectors:
-                        app_data[e] = app_data[e] - last_data[e]
-                    for e in self.HI.estimators:
-                        app_data[e] = '{:.1f}%'.format(
-                            100.0 * (app_data[e] - last_data[e]) / app_tick)
-
-                # Store in hourly DB
-                self.cdp_app_hourly.put(app_data)
-                for k in RAM.keys():
-                    last_data[k] = RAM[k]
-
-                # Store in daily DB
-                if not yesterday_stored and self.HI.get_yesterdays_counters():
-                    # Get yesterdays counters
-                    y_cnt = self.HI.get_yesterdays_counters()
-                    for k in y_cnt.keys():
-                        yesterday_data[k] = y_cnt[k]
-                    # Get yesterdays power_cycle
-                    pwr_cyc = yesterday_data['power_cycle']
-                    yesterday_data['time'] = self.timelog[pwr_cyc][0]
-                    yesterday_data['date'] = \
-                        yesterday_data['time'].split(' ')[0]
-                    yesterday_data['usage-at-time'] = self.timelog[pwr_cyc][1]
-                    self.cdp_app_daily.put(yesterday_data)
-                    yesterday_stored = True
-                # Log
-                if self.verbosity > 2:
-                    print('@ {}: App: {}'.format(app_data['time'], app_data))
-            else:
-                # Prepare next day
-                yesterday_stored = False
-
-
+# Start with building blocks
 class Estimator:
     """
     Class for holding an estimator used in the HI
@@ -137,15 +55,19 @@ class Estimator:
     def increase_daily(self):
         # Pick-up on length?
         if self.inc_d:
-            # Max 3 times initial length
-            self.length = min(3*self.org_length, self.length + self.inc_d)
+            # Max 3 times initial length, randomize, increase
+            self.length = min(3*self.org_length,
+                              tt.intRndPct(self.length, 40)
+                              + self.inc_d)
 
     # Inc length
     def increase_monthly(self):
         # Pick-up on length?
         if self.inc_m:
-            # Max 3 times initial length
-            self.length = min(4*self.org_length, self.length + self.inc_m)
+            # Max 3 times initial length, randomize, increase
+            self.length = min(4*self.org_length,
+                              tt.intRndPct(self.length, 40)
+                              + self.inc_m)
 
     # Run the Estimator
     def run(self):
@@ -212,10 +134,6 @@ class HI:
         self.times_pr_day = cfg['times_pr_day']
         self.verbosity = cfg['verbosity']
         self.sim_start = tt.str2time(cfg['sim_start'])
-        # Prepare FSW writing of data
-        self.fsw_visits = cfg['fsw-visits']
-        self.cdp_fsw_daily = cdp.getFswDaily()
-        # self.data = data
         self.pp = pprint.PrettyPrinter(indent=2, width=170)
         # Declare
         self.RAM = {}
@@ -228,46 +146,20 @@ class HI:
         self.env.process(self.run_daily())
         # Start the sessions and the detectors and estimators
         self.env.process(self.run_sessions())
+        # Start detectors
         for d in self.detectors:
             self.env.process(self.run_detectors(d))
+        # Start estimators
         for d in cfg['estimators']:
-            # Start estimators
             self.estimators[d] = Estimator(
                 d, self, self.env, self.RAM, cfg['estimators'][d],
                 self.is_running, self.verbosity)
+        # Start FSW
+        self.fsw = Fsw.FSW(self, self.env, cdp, cfg['fsw'], self.verbosity)
+        # Start App
         if cfg['app']['on']:
-            self.app = App(self, self.env, cdp, cfg['app'],
-                           self.verbosity, self.sim_start)
-
-    # Check if running
-    def is_running(self):
-        return self.HI_running
-
-    # Return RAM
-    def get_counters_RAM(self):
-        self.update_usage()
-        self.update_estimators()
-        return self.RAM
-
-    # Return NVRAM
-    def get_counters_NVRAM(self):
-        return self.NVRAM
-
-    # Get yeterdays counters
-    def get_yesterdays_counters(self):
-        return self.NVRAM_yesterday
-
-    # Update usage counter
-    def update_usage(self):
-        if (self.HI_running and (self.env.now > self.last_updated_at)):
-            self.RAM['usage'] += self.env.now - self.last_updated_at
-            self.last_updated_at = self.env.now
-
-    # Update estimator counters
-    def update_estimators(self):
-        if (self.HI_running):
-            for e in self.estimators.keys():
-                self.estimators[e].update_counter()
+            self.app = App.App(self, self.env, cdp, cfg['app'],
+                               self.verbosity, self.sim_start)
 
     # Init Memory
     def init_memory(self, cfg):
@@ -290,6 +182,44 @@ class HI:
         for k in range(self.nvram_month):
             self.NVRAM_MONTH.append(self.RAM.copy())
 
+    # Check if running
+    def is_running(self):
+        return self.HI_running
+
+    # Printable version of present time
+    def now2str(self):
+        return tt.time2str(self.sim_start + self.env.now)
+
+    # Return RAM
+    def get_counters_RAM(self):
+        self.update_usage()
+        self.update_estimators()
+        return self.RAM
+
+    # Return NVRAM
+    def get_counters_NVRAM(self):
+        return self.NVRAM
+
+    # Return NVRAM_MONTH
+    def get_counters_NVRAM_MONTH(self):
+        return self.NVRAM_MONTH
+
+    # Get yeterdays counters
+    def get_yesterdays_counters(self):
+        return self.NVRAM_yesterday
+
+    # Update usage counter
+    def update_usage(self):
+        if (self.HI_running and (self.env.now > self.last_updated_at)):
+            self.RAM['usage'] += self.env.now - self.last_updated_at
+            self.last_updated_at = self.env.now
+
+    # Update estimator counters
+    def update_estimators(self):
+        if (self.HI_running):
+            for e in self.estimators.keys():
+                self.estimators[e].update_counter()
+
     # Run daily
     def run_daily(self):
         t_24h = tt.hms2sec('24h')
@@ -311,9 +241,9 @@ class HI:
                 for e in self.estimators.keys():
                     self.estimators[e].increase_monthly()
                 # Potentially store in FSW DB
-                if month_cnt in self.fsw_visits:
-                    for n in self.NVRAM:
-                        self.cdp_fsw_daily.put(n)
+                # if month_cnt in self.fsw_visits:
+                #     for n in self.NVRAM:
+                #         self.cdp_fsw_daily.put(n)
                 if self.verbosity > 0:
                     print('Monthly tick  @', self.now2str(),
                           ', HI: ', self.id, ', month: ', int(month_cnt))
@@ -401,9 +331,8 @@ class HI:
                 dm[x] = dd[x].diff().loc[1:][:].astype(int)
             dm['Usage'] = dm['usage'] / 3600 / self.nvram_array
             dm['Charge'] = dm['charge'] / 3600 / self.nvram_array
-            dm['Speech'] = 100.0 * dm['speech'] / dm['usage']\
-                / self.nvram_array
-            dm['OwnVoice'] = 100.0 * dm['ovd'] / dm['usage'] / self.nvram_array
+            dm['Speech'] = 100.0 * dm['speech'] / dm['usage']
+            dm['OwnVoice'] = 100.0 * dm['ovd'] / dm['usage']
 
             # Plot Voice Overview pr Month
             ax = dm.plot.bar(x='power_cycle', y=['OwnVoice', 'Speech'],
