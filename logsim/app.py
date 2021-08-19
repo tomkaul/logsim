@@ -19,6 +19,23 @@ class App:
 
     # Constructor
     def __init__(self, HI, env, cdp, cfg, verbosity, sim_start):
+        """
+        Constructor of an App
+
+        Parameters
+        ----------
+        HI : HI
+        env : simpy.env
+        cdp : CDP, Common Data Platform
+        cfg : JSON, Configuration parameters
+        verbosity : int
+        sim_start : int (start-time in secs)
+
+        Returns
+        -------
+        None.
+
+        """
         self.HI = HI
         self.env = env
         self.cdp_app_hourly = cdp.getAppHourly()
@@ -31,16 +48,16 @@ class App:
         # Start the App
         self.env.process(self.run())
 
-    # Return date and time
     def time2str(self):
+        """Return current date and time as string"""
         return tt.time2str(self.sim_start + self.env.now)
 
-    # Return date and time
     def date2str(self):
+        """Return current date as string"""
         return tt.time2date(self.sim_start + self.env.now)
 
-    # Run the App
     def run(self):
+        """Run the App"""
         app_tick = tt.hms2sec(self.interval)
         app_data = {}
         last_data = {}

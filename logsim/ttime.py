@@ -10,22 +10,27 @@ import math
 import time
 import random
 
+
 # %% Time related functions
 def time2str(t=0):
+    """Convert time(secs) to string format"""
     return time.strftime('%Y-%m-%d %H:%M:%S',
                          time.localtime(t) if t else time.localtime())
 
 
 def time2date(t=0):
+    """Convert time(secs) to string format, data only"""
     return time2str(t).split(' ')[0]
 
 
 def str2time(s=''):
+    """Convert time from string to secs"""
     return int(time.mktime(
         time.strptime(s if len(s) else time2str(), '%Y-%m-%d %H:%M:%S')))
 
 
 def sec2hms(s):
+    """Converts time in secs to H:M:S format"""
     H = math.floor(s/3600)
     M = math.floor((s - H*3600)/60)
     S = math.floor(s - H*3600 - M*60)
@@ -33,6 +38,7 @@ def sec2hms(s):
 
 
 def hms2sec(hms):
+    """Converts H:M:S format to secs"""
     try:
         ll = hms.split(':')
     except ValueError:
@@ -54,6 +60,20 @@ def hms2sec(hms):
 
 
 # %% Random functions
-# Randomize an integer by 10 pct (configurable)
 def intRndPct(n, pct=20):
+    """
+    Randomize an integer
+
+    Parameters
+    ----------
+    n : int
+    pct : int, optional
+        Randomization factor in %. The default is 20.
+
+    Returns
+    -------
+    int
+        Randomized integer
+
+    """
     return int(n * (100.0 + random.uniform(-pct, pct)) / 100.0)

@@ -14,12 +14,40 @@ import pandas as pd
 
 # Data base as pandas dataframe
 class DataPool:
+    """Class holding a DB (based on a Pandas DataFrame)"""
+
     def __init__(self, name):
+        """
+        Constructor of a DB (based on a Pandas DataFrame)
+
+        Parameters
+        ----------
+        name : string
+            Name of DB.
+
+        Returns
+        -------
+        None.
+
+        """
         self.empty = True
         self.df = False
         self.name = name
 
     def put(self, data):
+        """
+        Add a new entry to the DB
+
+        Parameters
+        ----------
+        data : JSON object
+            Data to append to the DB.
+
+        Returns
+        -------
+        None.
+
+        """
         if self.empty:
             self.df = pd.DataFrame([data])
             self.empty = False
@@ -27,48 +55,123 @@ class DataPool:
             self.df = self.df.append(data, ignore_index=True)
 
     def isNotEmpty(self):
+        """
+        Check if DB is empty
+
+        Returns
+        -------
+        boolean
+            'True' if not empty, 'False' if empty.
+
+        """
         return not self.empty
 
     # Save DB as CSV
     def saveAsCSV(self, ver='00'):
+        """
+        Save DB as a CSV file
+
+        Parameters
+        ----------
+        ver : string, optional
+            Version indicator. The default is '00'.
+
+        Returns
+        -------
+        None.
+
+        """
         self.df.to_csv(self.name + '_' + ver + '.csv')
 
     # Load DB from CSV
     def loadAsCSV(self, ver='00'):
+        """
+        Load DB from a CSV file
+
+        Parameters
+        ----------
+        ver : string, optional
+            Version indicator. The default is '00'.
+
+        Returns
+        -------
+        None.
+
+        """
         self.df = pd.read_csv(self.name + '_' + ver + '.csv')
         self.empty = False
 
 
 # Class holding all databases
 class CDP:
+    """Class holding a number of DBs - Common Data Platform """
+
     def __init__(self):
+        """ CDP Constructor """
         self.app_daily = DataPool('app_daily')
         self.app_hourly = DataPool('app_hourly')
         self.fsw_daily = DataPool('fsw_daily')
 
     # Save all DB as CSV
     def saveAsCSV(self, ver='00'):
+        """
+        Save all DB's as CSV files
+
+        Parameters
+        ----------
+        ver : string, optional
+            Version indicator. The default is '00'.
+
+        Returns
+        -------
+        None.
+
+        """
         self.app_daily.saveAsCSV(ver)
         self.app_hourly.saveAsCSV(ver)
         self.fsw_daily.saveAsCSV(ver)
 
     # Load all DB from CSV
     def loadAsCSV(self, ver='00'):
+        """
+        Load all DB's from CSV files
+
+        Parameters
+        ----------
+        ver : string, optional
+            Version indicator. The default is '00'.
+
+        Returns
+        -------
+        None.
+
+        """
         self.app_daily.loadAsCSV(ver)
         self.app_hourly.loadAsCSV(ver)
         self.fsw_daily.loadAsCSV(ver)
 
     def getAppDaily(self):
+        """ Get Daily App DB """
         return self.app_daily
 
     def getAppHourly(self):
+        """ Get Hourly App DB """
         return self.app_hourly
 
     def getFswDaily(self):
+        """ Get Daily FSW DB """
         return self.fsw_daily
+
+    def create_silver_buckets(self):
+        """ Create the silver buckets from RAW bronze data """
+        # FSW daily
+        # Remove duplicates
+        df = self.getFswDaily().df
+        df = df.drop_duplicates(subset=['id', 'power_cycle'])
 
     # Plot daily data
     def plotDaily(self, days=31, user_id=0):
+        """ Plot most important Daily data """
         # Prepare daily data
         # df = pd.DataFrame(hi.NVRAM)
         df = self.getAppDaily().df if self.getAppDaily().isNotEmpty() \
@@ -125,6 +228,7 @@ class CDP:
 
     # Plot monthly data
     def plotMonthly(self, user_id=0, month=30):
+        """ Plot most important Monthly data """
         # Prepare monthly data
         df = self.getAppDaily().df
         df = df.loc[df['id'] == user_id]

@@ -19,6 +19,22 @@ class FSW:
 
     # Constructor
     def __init__(self, HI, env, cdp, cfg, verbosity):
+        """
+        Constructor of FSW
+
+        Parameters
+        ----------
+        HI : HI
+        env : simpy.env
+        cdp : CDP, Common Data Platform
+        cfg : JSON, Configuration parameters
+        verbosity : int
+
+        Returns
+        -------
+        None.
+
+        """
         self.HI = HI
         self.env = env
         self.cdp_fsw_daily = cdp.getFswDaily()
@@ -27,8 +43,8 @@ class FSW:
         # Start the FSW
         self.env.process(self.run())
 
-    # Run the Fsw
     def run(self):
+        """ Run the Fsw"""
         month_in_sec = tt.hms2sec('24h') * 30
         last_visit = 0
         for visit in self.visits:

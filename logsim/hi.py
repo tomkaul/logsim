@@ -23,11 +23,27 @@ class Estimator:
     """
 
     # Constructor
-    def __init__(self, name, HI, env, RAM, cfg, parent_running, verbosity):
+    def __init__(self, name, HI, env, cfg, parent_running, verbosity):
+        """
+        Constructor of an Estimator
+
+        Parameters
+        ----------
+        name : string
+        HI :   HI
+        env :  simpy.env
+        cfg :  JSON, Configuration parameters
+        parent_running : boolean
+        verbosity : int
+
+        Returns
+        -------
+        None.
+
+        """
         self.name = name
         self.HI = HI
         self.env = env
-        self.RAM = RAM
         self.count = 0
         self.last_updated = 0
         self.interval = tt.hms2sec(cfg['interval'])
@@ -38,59 +54,60 @@ class Estimator:
         self.verbosity = verbosity
         self.inc_d = tt.hms2sec(cfg['inc_d']) if 'inc_d' in cfg else 0
         self.inc_m = tt.hms2sec(cfg['inc_m']) if 'inc_m' in cfg else 0
+        self.randinc = 0 if 'rand-off' in cfg else 40
         # Start the estimator
         self.env.process(self.run())
 
-    # Update counter
     def update_counter(self):
+        """Update counter value"""
         if self.running:
-            self.RAM[self.name] += self.env.now - self.last_updated
+            self.HI.RAM[self.name] += self.env.now - self.last_updated
             self.last_updated = self.env.now
 
-    # Set parent
     def set_parent(self, parent):
+        """Set parent"""
         self.parent_running = parent
 
-    # Inc length
     def increase_daily(self):
+        """Inc length daily"""
         # Pick-up on length?
         if self.inc_d:
             # Max 3 times initial length, randomize, increase
             self.length = min(3*self.org_length,
-                              tt.intRndPct(self.length, 40)
+                              tt.intRndPct(self.length, self.randinc)
                               + self.inc_d)
 
-    # Inc length
     def increase_monthly(self):
+        """Inc length monthly"""
         # Pick-up on length?
         if self.inc_m:
             # Max 3 times initial length, randomize, increase
             self.length = min(4*self.org_length,
-                              tt.intRndPct(self.length, 40)
+                              tt.intRndPct(self.length, self.randinc)
                               + self.inc_m)
 
-    # Run the Estimator
     def run(self):
-        # Default length
-        length = 0
+        """Run the Estimator"""
         while True:
             # Depend on HI running
             if self.parent_running():
                 # Start estimator
-                yield self.env.timeout(self.interval-length)
                 self.running = True
                 self.last_updated = self.env.now
                 if self.verbosity > 3:
                     print('@ {}: {} started'.format(
                         self.HI.now2str(), self.name))
-                # End estimator
+                # Run for 'length' secs
                 yield self.env.timeout(self.length)
+                # End estimator
                 # Update counter
                 self.update_counter()
                 if self.verbosity > 3:
                     print('@ {}: {} ended, count = {}'.format(
-                        self.HI.now2str(), self.name, self.RAM[self.name]))
+                        self.HI.now2str(), self.name, self.HI.RAM[self.name]))
                 self.running = False
+                # Wait for 'interval - length' secs
+                yield self.env.timeout(self.interval-self.length)
             else:
                 # Kill time
                 yield self.env.timeout(self.interval)
@@ -98,22 +115,34 @@ class Estimator:
 
 class HI:
     """
-    Class for holding a HI with detctors and estimators and an App
-    that can sample the logging data from the HI
-    Init Parameters
-    ---------------
-    id: numeric
-         An identification number unique to this HI
-
-    env: Reference to a simpy environment object
-
-    data: Reference to a DataPool object
-
-    cfg: Reference to a Configuration dict
+    Class for holding a HI with detectors, estimators.
+    The HI is connected to both an App and FSW
+    which both can sample the logging data from the HI
     """
 
     # Constructor
     def __init__(self, id, env, cdp, cfg):
+        """
+        Constructor of HI
+        Parameters
+        ----------
+        id: numeric
+             An identification number unique to this HI
+
+        env: simpy.env
+            Reference to a simpy environment object
+
+        cdp: CDP (Common Data Platform)
+            Reference to a DataPool object
+
+        cfg: JSON object
+            Reference to a Configuration dict
+
+        Returns
+        -------
+        None.
+
+        """
         # Initialize variables
         self.HI_running = False
         self.id = id
@@ -152,7 +181,7 @@ class HI:
         # Start estimators
         for d in cfg['estimators']:
             self.estimators[d] = Estimator(
-                d, self, self.env, self.RAM, cfg['estimators'][d],
+                d, self, self.env, cfg['estimators'][d],
                 self.is_running, self.verbosity)
         # Start FSW
         self.fsw = Fsw.FSW(self, self.env, cdp, cfg['fsw'], self.verbosity)
@@ -163,13 +192,12 @@ class HI:
 
     # Init Memory
     def init_memory(self, cfg):
+        """Initialize RAM based on cfg data"""
         # Create RAM version of HI-ID and usage
         self.RAM['id'] = self.id
         self.RAM['power_cycle'] = 0
         self.RAM['charge'] = 0
         self.RAM['usage'] = 0
-        # self.RAM['time'] = 0
-        # self.RAM['date'] = 0
         # Create RAM version of all detectors: (State, cnt)
         for d in cfg['estimators']:
             self.RAM[d] = 0
@@ -182,46 +210,46 @@ class HI:
         for k in range(self.nvram_month):
             self.NVRAM_MONTH.append(self.RAM.copy())
 
-    # Check if running
     def is_running(self):
+        """Is Hi running?"""
         return self.HI_running
 
-    # Printable version of present time
     def now2str(self):
+        """Printable version of present time"""
         return tt.time2str(self.sim_start + self.env.now)
 
-    # Return RAM
     def get_counters_RAM(self):
+        """Return RAM"""
         self.update_usage()
         self.update_estimators()
         return self.RAM
 
-    # Return NVRAM
     def get_counters_NVRAM(self):
+        """Return NVRAM"""
         return self.NVRAM
 
-    # Return NVRAM_MONTH
     def get_counters_NVRAM_MONTH(self):
+        """Return NVRAM_MONTH"""
         return self.NVRAM_MONTH
 
     # Get yeterdays counters
     def get_yesterdays_counters(self):
         return self.NVRAM_yesterday
 
-    # Update usage counter
     def update_usage(self):
+        """Update usage counter"""
         if (self.HI_running and (self.env.now > self.last_updated_at)):
             self.RAM['usage'] += self.env.now - self.last_updated_at
             self.last_updated_at = self.env.now
 
-    # Update estimator counters
     def update_estimators(self):
+        """Update estimator counters"""
         if (self.HI_running):
             for e in self.estimators.keys():
                 self.estimators[e].update_counter()
 
-    # Run daily
     def run_daily(self):
+        """Run daily"""
         t_24h = tt.hms2sec('24h')
         cnt = 0
         while True:
@@ -248,8 +276,8 @@ class HI:
                     print('Monthly tick  @', self.now2str(),
                           ', HI: ', self.id, ', month: ', int(month_cnt))
 
-    # Sessions
     def run_sessions(self):
+        """Run days/sessions until the end"""
         # Start in the morning...
         first_day = True
         pwr_cycle = 0
@@ -275,7 +303,6 @@ class HI:
             if self.verbosity > 0:
                 print('Usage started @', self.now2str(), ', HI: ', self.id)
             self.RAM['charge'] += self.env.now - self.last_updated_at
-            self.RAM['time'] = 0
             self.last_updated_at = self.env.now
             yield self.env.timeout(tick)
 
@@ -305,12 +332,12 @@ class HI:
             # inc power_cycle to prepare for next session
             self.RAM['power_cycle'] += 1
 
-    # Pretty print RAM, NVRAM etc
     def pprint(self, dct):
+        """Pretty print RAM, NVRAM etc"""
         self.pp.pprint(dct)
 
-    # Start HI detectors
     def run_detectors(self, d):
+        """Start HI detectors"""
         while True:
             yield self.env.timeout(tt.hms2sec(self.detectors[d]))
             if self.is_running():
@@ -319,8 +346,8 @@ class HI:
                     print('@ {}: {} fired, count = {}'.format(
                         self.env.now, d, self.RAM[d]))
 
-    # Plot monthly data
     def plotMonthlyData(self):
+        """Plot monthly data"""
         if self.nvram_month:
             dd = pd.DataFrame(self.NVRAM_MONTH)
             dm = dd.loc[1:][:]
