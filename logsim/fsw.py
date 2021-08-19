@@ -46,6 +46,6 @@ class FSW:
                 if nv['usage']:
                     self.cdp_fsw_daily.put(nv)
             # Log the visit
-            if self.verbosity > -1:
+            if self.verbosity > 0:
                 print('HCP visit     @', self.HI.now2str(),
                       ', HI: ', self.HI.id, ', month: ', visit)
