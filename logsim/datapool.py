@@ -17,37 +17,14 @@ class DataPool:
     """Class holding a DB (based on a Pandas DataFrame)"""
 
     def __init__(self, name):
-        """
-        Constructor of a DB (based on a Pandas DataFrame)
-
-        Parameters
-        ----------
-        name : string
-            Name of DB.
-
-        Returns
-        -------
-        None.
-
-        """
+        """ Constructor of a DB (based on a Pandas DataFrame) """
         self.empty = True
         self.df = False
+        self.diffd = False
         self.name = name
 
     def put(self, data):
-        """
-        Add a new entry to the DB
-
-        Parameters
-        ----------
-        data : JSON object
-            Data to append to the DB.
-
-        Returns
-        -------
-        None.
-
-        """
+        """ Add a new entry to the DB """
         if self.empty:
             self.df = pd.DataFrame([data])
             self.empty = False
@@ -55,51 +32,41 @@ class DataPool:
             self.df = self.df.append(data, ignore_index=True)
 
     def isNotEmpty(self):
-        """
-        Check if DB is empty
-
-        Returns
-        -------
-        boolean
-            'True' if not empty, 'False' if empty.
-
-        """
+        """ Check if DB is empty """
         return not self.empty
 
     # Save DB as CSV
     def saveAsCSV(self, ver='00'):
-        """
-        Save DB as a CSV file
-
-        Parameters
-        ----------
-        ver : string, optional
-            Version indicator. The default is '00'.
-
-        Returns
-        -------
-        None.
-
-        """
+        """ Save DB as a CSV file """
         self.df.to_csv(self.name + '_' + ver + '.csv')
 
     # Load DB from CSV
     def loadAsCSV(self, ver='00'):
-        """
-        Load DB from a CSV file
-
-        Parameters
-        ----------
-        ver : string, optional
-            Version indicator. The default is '00'.
-
-        Returns
-        -------
-        None.
-
-        """
-        self.df = pd.read_csv(self.name + '_' + ver + '.csv')
+        """ Load DB from a CSV file """
+        # print('LOADING CSV FILE: ' + self.name)
+        self.df = pd.read_csv(self.name + '_' + ver + '.csv', index_col=[0])
         self.empty = False
+
+    def diff_data(self, df):
+        """ Differentiate counters"""
+        if not self.diffd:
+            # Which columns to differentiate
+            k_list = [x for x in list(self.df.keys())
+                      if x not in ['id', 'power_cycle', 'time',
+                                   'date', 'usage-at-time']]
+            # Get list of ID's
+            id_list = list(df['id'].unique())
+            # Diff the relevant data
+            dd = df.copy()
+            dd.drop(dd.loc[dd['power_cycle'] == 0].index, inplace=True)
+
+            # Loop over all ID's
+            for id in id_list:
+                dd.loc[df['id'] == id, k_list] = \
+                    df.loc[df['id'] == id, k_list].diff().iloc[1:].astype(int)
+            # Replace by diff'ed DataFrame
+            self.diffd = True
+            self.df = dd
 
 
 # Class holding all databases
@@ -165,9 +132,11 @@ class CDP:
     def create_silver_buckets(self):
         """ Create the silver buckets from RAW bronze data """
         # FSW daily
-        # Remove duplicates
         df = self.getFswDaily().df
-        df = df.drop_duplicates(subset=['id', 'power_cycle'])
+        # Sort by if and day
+        df = df.sort_values(by=['id', 'power_cycle'])
+        # Remove duplicates
+        df = df.drop_duplicates(subset=['id', 'power_cycle'], inplace=True)
 
     # Plot daily data
     def plotDaily(self, days=31, user_id=0):

@@ -15,6 +15,9 @@ pd.options.mode.chained_assignment = None
 cdp0 = CDP()
 cdp0.loadAsCSV(ver='02')
 
+# %% Cleanse data
+cdp0.create_silver_buckets()
+
 # %% Plot daily stuff
 user = 0
 cdp0.plotDaily(user_id=user)

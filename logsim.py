@@ -64,6 +64,11 @@ HI_cfg1 = {
     {'ovd':    {'interval': '45m', 'length': '2m', 'inc_m': '50s'},
      'speech': {'interval': '45m', 'length': '6m', 'inc_m': '25s'},
      'noise':  {'interval':  '15m', 'length':  '1m'},
+     'snr-low':  {'interval': '10m', 'length': '1m', 'rand-off': True,
+                  'inc_m': '1s'},
+     'snr-med':  {'interval': '10m', 'length': '2m', 'rand-off': True},
+     'snr-high': {'interval': '10m', 'length': '7m', 'rand-off': True,
+                  'inc_m': '-1s'},
      'ovd-snr-low':  {'interval': '60m', 'length': '1m', 'inc_m': '8s'},
      'ovd-snr-med':  {'interval': '60m', 'length': '3m'},
      'ovd-snr-high': {'interval': '60m', 'length': '3m', 'inc_m': '2s'},
@@ -72,7 +77,7 @@ HI_cfg1 = {
      # 'traffic': {'interval':  '5m', 'length':  '4m'},
      },
     'detectors': {'vcUp': '131m', 'vcDwn': '130m'},
-    'app': {'on': True, 'diff': True, 'interval': '1h'},
+    'app': {'on': True, 'diff': False, 'interval': '1h'},
     'fsw': {'visits': [1, 6, 12]},
     'times_pr_day': 1,
     }
@@ -87,6 +92,11 @@ HI_cfg2 = {
     {'ovd':    {'interval': '45m', 'length': '2m', 'inc_m': '30s'},
      'speech': {'interval': '45m', 'length': '6m', 'inc_m': '20s'},
      'noise':  {'interval':  '15m', 'length':  '1m'},
+     'snr-low':  {'interval': '10m', 'length': '1m', 'rand-off': True,
+                  'inc_m': '1s'},
+     'snr-med':  {'interval': '10m', 'length': '2m', 'rand-off': True},
+     'snr-high': {'interval': '10m', 'length': '7m', 'rand-off': True,
+                  'inc_m': '-1s'},
      'ovd-snr-low':  {'interval': '60m', 'length': '1m', 'inc_m': '6s'},
      'ovd-snr-med':  {'interval': '60m', 'length': '3m'},
      'ovd-snr-high': {'interval': '60m', 'length': '3m', 'inc_m': '1s'},
@@ -95,7 +105,7 @@ HI_cfg2 = {
      # 'traffic': {'interval':  '5m', 'length':  '4m'},
      },
     'detectors': {'vcUp': '131m', 'vcDwn': '130m'},
-    'app': {'on': True, 'diff': True, 'interval': '1h'},
+    'app': {'on': True, 'diff': False, 'interval': '1h'},
     'fsw': {'visits': [1, 6, 12]},
     'times_pr_day': 1,
     }
@@ -118,14 +128,14 @@ def more_users(users):
         users[i] = HI(i, env, cdp, HI_cfg2)
 
 # Comment out if you want only one user
-# more_users(users)
+more_users(users)
 
 # %% Run simulation
 print('Simulation started @ ' + sim_start)
 env.run(until=tt.hms2sec('{}d:4h'.format(days)))
 print('Simulation ended   @ ' + tt.time2str(tt.str2time(sim_start) + env.now))
 
-cdp.saveAsCSV(ver='02')
+cdp.saveAsCSV(ver='03')
 
 # %% Test plot
 if plot:
