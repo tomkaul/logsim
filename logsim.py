@@ -128,16 +128,17 @@ def more_users(users):
         users[i] = HI(i, env, cdp, HI_cfg2)
 
 # Comment out if you want only one user
-more_users(users)
+# more_users(users)
 
 # %% Run simulation
 print('Simulation started @ ' + sim_start)
 env.run(until=tt.hms2sec('{}d:4h'.format(days)))
 print('Simulation ended   @ ' + tt.time2str(tt.str2time(sim_start) + env.now))
 
-cdp.saveAsCSV(ver='03')
+cdp.saveAsCSV(ver='01')
 
 # %% Test plot
 if plot:
-    cdp.plotDaily()
-    hi.plotMonthlyData()
+    cdp.getAppDaily().plot_daily(user_id=0)
+    cdp.getAppDaily().plot_monthly(user_id=0)
+    # hi.plotMonthlyData()

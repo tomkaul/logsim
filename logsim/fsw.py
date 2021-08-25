@@ -19,25 +19,11 @@ class FSW:
 
     # Constructor
     def __init__(self, HI, env, cdp, cfg, verbosity):
-        """
-        Constructor of FSW
-
-        Parameters
-        ----------
-        HI : HI
-        env : simpy.env
-        cdp : CDP, Common Data Platform
-        cfg : JSON, Configuration parameters
-        verbosity : int
-
-        Returns
-        -------
-        None.
-
-        """
+        """ Constructor of FSW"""
         self.HI = HI
         self.env = env
         self.cdp_fsw_daily = cdp.getFswDaily()
+        self.cdp_fsw_monthly = cdp.getFswMonthly()
         self.visits = cfg['visits']
         self.verbosity = verbosity
         # Start the FSW
@@ -55,7 +41,7 @@ class FSW:
             for nv in NVRAM_MONTH:
                 # Store in Daily DB if data is valid
                 if nv['usage']:
-                    self.cdp_fsw_daily.put(nv)
+                    self.cdp_fsw_monthly.put(nv)
             NVRAM = self.HI.get_counters_NVRAM()
             for nv in NVRAM:
                 # Store in Daily DB
